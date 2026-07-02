@@ -89,8 +89,9 @@ print(data["summary"])   # 例: {'text': 12, 'table': 3, 'image': 2}
 ## スキルとしての配布
 
 このツールは Claude Code / GitHub Copilot のエージェントスキルとして配布できる。
-単一のソース `skill-src/` + 本体パッケージ `docextract/` から、ビルドスクリプトが
-`.claude/` と `.github/` の両方へ同一内容を出力する:
+単一のソース `skill-src/` (スキル) + `agent-src/` (エージェント) + 本体パッケージ
+`docextract/` から、ビルドスクリプトが `.claude/` と `.github/` の両方へ同一内容を
+出力する:
 
 ```powershell
 python scripts\build_skill.py        # --no-zip で zip 作成を省略
@@ -99,8 +100,23 @@ python scripts\build_skill.py        # --no-zip で zip 作成を省略
 | 出力先 | 内容 |
 |--------|------|
 | `.claude/skills/docextract/` `.github/skills/docextract/` | SKILL.md・docs/・scripts/ (本体パッケージ + テスト同梱、自己完結) |
+| `.claude/agents/` `.github/agents/` | doc-guide / doc-analyzer / doc-qa の各エージェント定義 |
 | `.claude/package-meta/docextract/` `.github/package-meta/docextract/` | LICENSE (MIT)・CHANGELOG.md・dependencies.md (依存ライセンス一覧) |
 | `dist/docextract-skill.zip` | 上記をまとめた配布物 (展開先リポジトリのルートに解凍するだけで導入完了) |
+
+SKILL.md とエージェント .md は「共通 body + プラットフォーム別フロントマター」から
+組み立てる。ソースは 1 スキル / 1 エージェントごとに次の 4 ファイル:
+
+```
+skill-src/docextract/  または  agent-src/<エージェント名>/
+├── body.md                    # 両プラットフォーム共通の本文
+├── frontmatter.common.yaml    # name / description など共通フロントマター
+├── frontmatter.claude.yaml    # .claude 固有 (例: doc-analyzer の model: haiku)
+└── frontmatter.github.yaml    # .github 固有 (例: model: claude-haiku-4.5)
+```
+
+共通部分は common / body を1箇所直せば両方に反映され、プラットフォーム固有の
+フィールド (Claude の `license` や model 指定の表記差など) は各フラグメントに置く。
 
 ## テスト
 
@@ -114,7 +130,8 @@ python -m unittest discover -s .claude\skills\docextract\scripts\tests -v  # ビ
 配布先の環境でそのまま自己検証に使える。
 
 `.claude/` `.github/` 配下は生成物なので直接編集しないこと。変更は
-`skill-src/` (スキル文書) または `docextract/` (コード) に対して行い、再ビルドする。
+`skill-src/` (スキル文書)・`agent-src/` (エージェント定義)・`docextract/` (コード)
+に対して行い、再ビルドする。
 
 ## 構成
 
