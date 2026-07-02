@@ -17,17 +17,28 @@ exists only as pixels:
 All dependencies are OSS cleared for commercial use (MIT / BSD / Apache-2.0);
 see [package-meta/docextract/dependencies.md](../../package-meta/docextract/dependencies.md).
 
-## Setup (automatic)
+## Setup (gated on first run)
 
-No manual install. The first run of `run_docextract.py` / `run_docagent.py`
-bootstraps a shared `.venv` at the project root with [uv](https://docs.astral.sh/uv/),
-installs `requirements.txt`, and re-executes there; later runs start instantly.
+The first run of `run_docextract.py` / `run_docagent.py` bootstraps a shared `.venv`
+at the project root with [uv](https://docs.astral.sh/uv/), installs `requirements.txt`,
+and re-executes there; later runs start instantly.
 
-- `uv` is auto-installed on first use if missing (set `DOCEXTRACT_NO_UV_AUTOINSTALL=1`
-  to opt out and install it yourself)
-- OCR / table-detection models (tens of MB) download into `.venv` on first run
-- For fully offline use, run once online to warm the cache, or use
-  `--ocr-backend windows` (Windows only, built-in OCR)
+Because bootstrap can run a **remote installer** and download **hundreds of MB**, these
+high-risk steps go through an **approval gate** and are **safe-by-default (opt-in, fail-closed)**:
+
+- If `uv` is missing, dependencies aren't installed, or a model must be fetched, the
+  launcher prints the exact command + download size and **stops unless approved**.
+- Approve by setting `DOCEXTRACT_AUTOINSTALL=1` for that run, or by answering the
+  interactive `y/N` prompt on a TTY. Non-interactive runs without opt-in fail closed.
+- `DOCEXTRACT_NO_UV_AUTOINSTALL=1` hard-disables auto-install (takes precedence).
+- OCR / table-detection models (tens of MB) download into `.venv` on first extraction.
+- For fully offline use, run once online (approved) to warm the cache, or use
+  `--ocr-backend windows` (Windows only, built-in OCR).
+
+```bash
+# approved one-off run (bash; PowerShell: set $env:DOCEXTRACT_AUTOINSTALL=1 first)
+DOCEXTRACT_AUTOINSTALL=1 python .claude/skills/docextract/scripts/run_docextract.py --dir <folder> -r
+```
 
 ## Usage
 

@@ -13,9 +13,21 @@ from __future__ import annotations
 import argparse
 import glob
 import sys
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import SUPPORTED_EXTENSIONS, extract, manifest, paths
+
+
+def _new_run_id() -> str:
+    """1 実行を識別する相関 ID（``run_<UTC時刻>_<短縮hex>``）。
+
+    バッチ／複数エージェント連携で一連の処理を横断追跡できるよう、CLI 実行ごとに
+    1 つ発番し、各文書のマニフェストエントリと標準出力に載せる。
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"run_{stamp}_{uuid.uuid4().hex[:6]}"
 
 
 def _scan_dir(directory: Path, recursive: bool) -> list[Path]:
@@ -156,6 +168,9 @@ def main(argv: list[str] | None = None) -> int:
     if not files:
         print("処理対象のファイルがありませんでした。", file=sys.stderr)
         return 1
+    # この実行を横断追跡する相関 ID。各文書のマニフェストと出力に載せる。
+    run_id = _new_run_id()
+    print(f"[run] run_id={run_id} 対象={len(files)} 件")
     processed_ids: list[str] = []
     for path in files:
         try:
@@ -166,9 +181,10 @@ def main(argv: list[str] | None = None) -> int:
                 ocr_lang=args.ocr_lang,
                 ocr_backend=args.ocr_backend,
                 image_tables=not args.no_image_tables,
+                run_id=run_id,
             )
         except Exception as e:
-            print(f"[NG] {path}: {e}", file=sys.stderr)
+            print(f"[NG] {path}: {e} (run_id={run_id})", file=sys.stderr)
             failed += 1
             continue
         summary = ", ".join(f"{k}={v}" for k, v in data["summary"].items()) or "抽出なし"
@@ -185,6 +201,10 @@ def main(argv: list[str] | None = None) -> int:
             if any(i in seen for i in ids):
                 print(f"[!] 内容が同一の文書があります: {', '.join(sorted(ids))}")
 
+    # 相関 ID 付きの完了サマリ。ログ上で 1 実行の成否をこの ID で追える。
+    print(
+        f"[done] run_id={run_id} 成功={len(processed_ids)} 失敗={failed}"
+    )
     return 1 if failed else 0
 
 

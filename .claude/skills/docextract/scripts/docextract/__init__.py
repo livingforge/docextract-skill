@@ -36,6 +36,46 @@ _EXTRACTORS = {
 SUPPORTED_EXTENSIONS = tuple(_EXTRACTORS)
 
 
+def register_extractor(
+    extension: str,
+    extractor: Any,
+    *,
+    overwrite: bool = False,
+) -> None:
+    """新しい形式の抽出器を登録する（拡張ポイント／差し替え機構）。
+
+    組み込みの ``_EXTRACTORS`` はハードコードだが、この関数で外部から形式を
+    追加・差し替えできる。これにより新形式のエクステンダを、本体を書き換えずに
+    足せる（登録レジストリによる依存性注入）。
+
+    引数:
+        extension: ``.foo`` のような**先頭ドット付き**の拡張子（大小無視）。
+        extractor: ``(input_path: Path, saver: ImageSaver) -> ExtractionResult``
+            のシグネチャを持つ callable。組み込み抽出器と同じ契約。
+        overwrite: 既存の形式（``.pdf`` 等）を差し替えたいときだけ True。
+            既定では既存形式への上書きを ``ValueError`` で拒否する。
+
+    ``SUPPORTED_EXTENSIONS`` は登録に追従して更新される。
+    """
+    ext = extension.lower()
+    if not ext.startswith(".") or len(ext) < 2:
+        raise ValueError(f"拡張子は先頭ドット付きで指定してください: {extension!r}")
+    if not callable(extractor):
+        raise TypeError("extractor は呼び出し可能である必要があります")
+    if ext in _EXTRACTORS and not overwrite:
+        raise ValueError(
+            f"形式 {ext} は既に登録済みです（差し替えるには overwrite=True）"
+        )
+    _EXTRACTORS[ext] = extractor
+    global SUPPORTED_EXTENSIONS
+    SUPPORTED_EXTENSIONS = tuple(_EXTRACTORS)
+
+
+def available_extractors() -> dict[str, Any]:
+    """登録済みの ``{拡張子: 抽出器}`` のコピーを返す（差し替え状況の確認用）。"""
+    return dict(_EXTRACTORS)
+
+
 def extract(
     input_path: str | Path,
     output_dir: str | Path | None = None,
@@ -45,6 +85,7 @@ def extract(
     ocr_backend: str = "auto",
     image_tables: bool = True,
     record_manifest: bool = True,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """1 つの文書を解析し、抽出結果を dict で返す。
 
@@ -65,6 +106,10 @@ def extract(
 
     ``record_manifest=True`` かつ ``save_json=True`` なら、出力先直下の
     ``index.json`` (抽出マニフェスト) にこの文書を ID で登録する。
+
+    ``run_id`` を渡すと、その値をマニフェストの各エントリに ``run_id`` として
+    記録する。バッチや複数エージェント連携で一連の処理を横断追跡するための
+    相関 ID（CLI が 1 実行につき 1 つ発番して各文書へ引き回す）。
     """
     input_path = Path(input_path)
     if output_dir is None:
@@ -125,6 +170,7 @@ def extract(
                     "file_type": result.file_type,
                     "result_path": (doc_out_dir / "result.json").as_posix(),
                     "size": input_path.stat().st_size,
+                    "run_id": run_id,
                 },
                 path=Path(output_dir) / "index.json",
             )

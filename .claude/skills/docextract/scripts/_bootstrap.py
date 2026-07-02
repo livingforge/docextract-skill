@@ -5,15 +5,24 @@
 を uv で用意し、その venv の python で本体を実行し直す。
 
 - 既に共有 venv の python で動いていれば何もしない (素通り)
-- ``uv`` が無ければ公式インストーラで自動導入
-  (``DOCEXTRACT_NO_UV_AUTOINSTALL=1`` で抑止し、手動導入を案内)
-- venv が無ければ ``uv venv`` で作成 (必要なら Python 本体も uv が調達)
-- スキルの requirements.txt が未反映なら ``uv pip install``
-  (requirements のハッシュを marker に記録し、変化が無ければ再インストールしない)
+- 外部取得・インストールを伴う**高リスク操作**は、実行前に承認ゲート
+  (:func:`_gate`) を必ず通す。既定は **fail-closed** (未承認なら停止)。
+    - ``uv`` が無ければ公式インストーラで導入
+    - venv が無ければ ``uv venv`` で作成 (必要なら Python 本体も uv が調達)
+    - スキルの requirements.txt が未反映なら ``uv pip install``
+      (数百 MB のダウンロードを伴う)
+  承認は次のいずれか: opt-in env ``DOCEXTRACT_AUTOINSTALL=1``、または
+  対話端末での y/N 確認。``DOCEXTRACT_NO_UV_AUTOINSTALL=1`` は最優先で禁止する。
+- requirements のハッシュを marker に記録し、変化が無ければ再インストールしない
 - 共有 venv の python でスクリプトを実行し直し、その終了コードで終わる
 
 共有 venv はルート直下に置くので、他スキルのランチャーからも
 同じ ``_bootstrap`` を使って同一環境を共用できる (marker はスキルごとに分離)。
+
+**安全設計 (承認ゲート)**: リモートスクリプトの download→exec や数百 MB の依存
+インストールは、既定では自動実行しない。opt-out (抑止フラグ) ではなく **opt-in**
+を採用し、承認が無い非対話実行は停止する。エージェント/自動実行では、ユーザに
+実行内容と規模を提示して承認を得てから ``DOCEXTRACT_AUTOINSTALL=1`` を付けて呼ぶ。
 """
 
 from __future__ import annotations
@@ -27,7 +36,11 @@ from pathlib import Path
 
 # 再帰実行を防ぐガード。再 exec 後の子プロセスではこれが立っている。
 _GUARD_ENV = "DOCEXTRACT_BOOTSTRAPPED"
-# uv 自動インストールを抑止したいとき (CI やオフライン) に立てる。
+# 高リスク操作 (外部取得・インストール) の自動実行を明示的に許可する opt-in フラグ。
+# 既定 (未設定) は fail-closed。承認を得た実行に限りこれを立てる。
+_AUTOINSTALL_ENV = "DOCEXTRACT_AUTOINSTALL"
+# 明示的な禁止フラグ。opt-in に反転した現在も、最優先の「絶対に自動実行しない」
+# 指定として尊重する (CI・オフライン・監査環境で使う)。
 _NO_AUTOINSTALL_ENV = "DOCEXTRACT_NO_UV_AUTOINSTALL"
 
 _UV_INSTALL_HINT = (
@@ -35,6 +48,66 @@ _UV_INSTALL_HINT = (
     '"irm https://astral.sh/uv/install.ps1 | iex"\n'
     "  macOS / Linux: curl -LsSf https://astral.sh/uv/install.sh | sh"
 )
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _autoinstall_opted_in() -> bool:
+    """opt-in env ``DOCEXTRACT_AUTOINSTALL`` が承認値かどうか。"""
+    return os.environ.get(_AUTOINSTALL_ENV, "").strip().lower() in _TRUTHY
+
+
+def _gate(action: str, commands: list[str], note: str = "") -> None:
+    """高リスク操作 (外部取得・インストール) の承認ゲート。
+
+    実行される**具体的なコマンドとダウンロード規模**を提示したうえで、
+    次の順で判定する:
+
+    1. ``DOCEXTRACT_NO_UV_AUTOINSTALL`` が立っていれば常に停止 (手動導入を案内)。
+    2. opt-in env ``DOCEXTRACT_AUTOINSTALL=1`` があれば承認済みとして通す。
+    3. 対話端末なら実行内容を提示して y/N 確認を取る。
+    4. いずれでもない (非対話・未承認) なら **fail-closed** で停止する。
+
+    opt-out (抑止フラグ) ではなく opt-in を採ることで「既定で安全」を担保する。
+    """
+    detail = "\n".join(f"    {c}" for c in commands)
+    banner = (
+        f"[bootstrap] 高リスク操作の承認が必要です: {action}\n"
+        "  実行されるコマンド:\n"
+        f"{detail}\n"
+    )
+    if note:
+        banner += f"  {note}\n"
+    print(banner, file=sys.stderr)
+
+    if os.environ.get(_NO_AUTOINSTALL_ENV):
+        sys.exit(
+            f"[bootstrap] {_NO_AUTOINSTALL_ENV} が設定されているため中止しました。\n"
+            "  上記コマンドを手動で実行してから再実行してください:\n"
+            + _UV_INSTALL_HINT
+        )
+    if _autoinstall_opted_in():
+        print(
+            f"[bootstrap] {_AUTOINSTALL_ENV}=1 により承認済みとして続行します。",
+            file=sys.stderr,
+        )
+        return
+    stdin = sys.stdin
+    if stdin is not None and stdin.isatty():
+        try:
+            answer = input("  この操作を実行しますか? [y/N]: ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer in ("y", "yes"):
+            return
+        sys.exit("[bootstrap] 承認されなかったため中止しました。")
+    # 非対話 かつ 未承認: 既定で安全側 (fail-closed) に倒す。
+    sys.exit(
+        "[bootstrap] 承認が無いため中止しました (fail-closed)。\n"
+        f"  自動実行を許可するには {_AUTOINSTALL_ENV}=1 を設定して再実行するか、\n"
+        "  上記コマンドを手動で実行してから再実行してください:\n"
+        + _UV_INSTALL_HINT
+    )
 
 
 def _project_root(start: Path) -> Path:
@@ -76,23 +149,27 @@ def _find_uv() -> str | None:
 
 
 def _install_uv() -> str:
-    if os.environ.get(_NO_AUTOINSTALL_ENV):
-        sys.exit(
-            "uv が見つかりません。インストールしてから再実行してください:\n"
-            + _UV_INSTALL_HINT
-        )
-    print(
-        "[bootstrap] uv が見つからないため公式インストーラで導入します "
-        f"(抑止するには {_NO_AUTOINSTALL_ENV}=1)...",
-        file=sys.stderr,
-    )
     if os.name == "nt":
         cmd = [
             "powershell", "-NoProfile", "-ExecutionPolicy", "ByPass",
             "-c", "irm https://astral.sh/uv/install.ps1 | iex",
         ]
+        shown = (
+            'powershell -ExecutionPolicy ByPass -c '
+            '"irm https://astral.sh/uv/install.ps1 | iex"'
+        )
     else:
         cmd = ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"]
+        shown = "curl -LsSf https://astral.sh/uv/install.sh | sh"
+    # リモートスクリプトを取得してそのまま実行する high-risk 操作。承認ゲート必須。
+    _gate(
+        "uv (Python パッケージ管理) を公式リモートインストーラで導入",
+        [shown],
+        note=(
+            "リモートスクリプトを取得して即実行します (ネットワーク接続が必要)。"
+            "手動導入する場合は上記コマンドを自分で実行してください。"
+        ),
+    )
     try:
         subprocess.run(cmd, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -138,7 +215,12 @@ def ensure_env(script: Path, requirements: Path, skill: str = "docextract") -> N
     uv = _find_uv() or _install_uv()
 
     if not venv_python.exists():
-        print(f"[bootstrap] 共有仮想環境を作成します: {venv}", file=sys.stderr)
+        # uv venv は要求バージョンが無ければ Python 本体をダウンロードしうる。
+        _gate(
+            f"共有仮想環境を作成 (必要なら Python 3.10+ を uv が調達): {venv}",
+            [f"uv venv --python >=3.10 {venv}"],
+            note="Python 本体が未導入の場合は uv がダウンロードします。",
+        )
         subprocess.run([uv, "venv", "--python", ">=3.10", str(venv)], check=True)
 
     # requirements が前回と同じなら再インストールしない。
@@ -146,10 +228,11 @@ def ensure_env(script: Path, requirements: Path, skill: str = "docextract") -> N
     want = _requirements_hash(requirements)
     have = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
     if have != want:
-        print(
-            f"[bootstrap] {skill} の依存を共有仮想環境へ導入します "
-            "(初回は数百 MB のダウンロードが発生します)...",
-            file=sys.stderr,
+        # 数百 MB の依存インストール。承認ゲートで具体コマンドと規模を提示する。
+        _gate(
+            f"{skill} の依存パッケージを共有仮想環境へインストール",
+            [f"uv pip install --python {venv_python} -r {requirements}"],
+            note="初回は数百 MB のダウンロードが発生します (OCR/表検出モデルは実行時に別途取得)。",
         )
         subprocess.run(
             [uv, "pip", "install", "--python", str(venv_python),
