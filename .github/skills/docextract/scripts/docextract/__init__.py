@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from . import identity, manifest, paths
+from . import identity, manifest, obs, paths
 from .extractors import extract_docx, extract_pdf, extract_pptx, extract_xlsx
 from .extractors.base import ImageSaver
 from .image_tables import detect_tables
@@ -86,6 +86,7 @@ def extract(
     image_tables: bool = True,
     record_manifest: bool = True,
     run_id: str | None = None,
+    log: "obs.Run | None" = None,
 ) -> dict[str, Any]:
     """1 つの文書を解析し、抽出結果を dict で返す。
 
@@ -110,17 +111,29 @@ def extract(
     ``run_id`` を渡すと、その値をマニフェストの各エントリに ``run_id`` として
     記録する。バッチや複数エージェント連携で一連の処理を横断追跡するための
     相関 ID（CLI が 1 実行につき 1 つ発番して各文書へ引き回す）。
+
+    ``log`` に :class:`obs.Run` を渡すと、抽出の開始/完了・劣化 (画像デコード
+    失敗等) を構造化ログ (JSON Lines) に相関 ID 付きで残す。省略時は ``run_id``
+    (無ければ環境変数 ``DOCEXTRACT_RUN_ID``) から自動でロガーを用意するので、
+    「観測ログだけから 1 run を再構成できる」性質を単体呼び出しでも保てる。
     """
     input_path = Path(input_path)
     if output_dir is None:
         output_dir = paths.output_dir()
+    # 観測ロガー: 明示指定 > run_id/環境変数から構築。run_id はロガーが実際に
+    # 使う値に揃え、マニフェストと監査ログで同じ相関 ID になるようにする。
+    if log is None:
+        log = obs.open_run("docextract", run_id, base_dir=output_dir)
+    run_id = log.run_id
     if not input_path.is_file():
+        log.error("extract.error", reason="file_not_found", source=str(input_path))
         raise FileNotFoundError(f"ファイルが見つかりません: {input_path}")
 
     ext = input_path.suffix.lower()
     extractor = _EXTRACTORS.get(ext)
     if extractor is None:
         supported = ", ".join(SUPPORTED_EXTENSIONS)
+        log.error("extract.error", reason="unsupported_format", ext=ext, source=str(input_path))
         raise ValueError(f"未対応の形式です: {ext} (対応形式: {supported})")
 
     # 出力フォルダ名は identity で作る衝突しない ID。別フォルダの同名ファイルでも
@@ -129,9 +142,14 @@ def extract(
     doc_id = identity.doc_id(input_path, source_key=source_key)
     doc_out_dir = Path(output_dir) / doc_id
     doc_out_dir.mkdir(parents=True, exist_ok=True)
+    log.event("extract.start", doc_id=doc_id, source=str(input_path), file_type=ext.lstrip("."))
 
     saver = ImageSaver(doc_out_dir)
     result: ExtractionResult = extractor(input_path, saver)
+
+    # 抽出器が握り潰さず残した劣化痕跡を、相関 ID 付きで監査ログにも流す。
+    for deg in result.degradations:
+        log.warn("extract.degraded", doc_id=doc_id, **deg)
 
     images = [el for el in result.elements if isinstance(el, ImageElement)]
     for el in images:
@@ -174,4 +192,12 @@ def extract(
                 },
                 path=Path(output_dir) / "index.json",
             )
+    # 1 文書分の完了を監査ログに残す。要素数と劣化件数を載せ、観測ログだけで
+    # 「何を何件抽出し、何件取りこぼしたか」を再構成できるようにする。
+    log.event(
+        "extract.done",
+        doc_id=doc_id,
+        summary=data["summary"],
+        degraded=len(result.degradations),
+    )
     return data

@@ -9,10 +9,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from docextract.extractors import extract_pdf
 from docextract.extractors.base import ImageSaver
+from docextract.extractors.pdf_extractor import _extract_images
+from docextract.models import ExtractionResult
 
 
 def _extract(path, out_dir):
     return extract_pdf(path, ImageSaver(out_dir)).to_dict()
+
+
+def test_image_extraction_records_degradation_not_silent(tmp_path):
+    # 壊れた/非 PDF を画像抽出に通すと、握り潰さず劣化痕跡を残す (S3)。
+    bogus = tmp_path / "broken.pdf"
+    bogus.write_bytes(b"not a real pdf")
+    result = ExtractionResult(source="broken.pdf", file_type="pdf")
+    _extract_images(bogus, ImageSaver(tmp_path / "out"), result)
+    assert result.degradations, "劣化は observable に記録されるべき"
+    assert result.degradations[0]["stage"] == "pdf.images"
+    assert result.to_dict()["degraded"]["count"] == len(result.degradations)
 
 
 def test_text_block_with_bbox(tmp_path, make_pdf):

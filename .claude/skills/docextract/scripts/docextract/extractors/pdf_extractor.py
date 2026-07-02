@@ -111,20 +111,41 @@ def _group_lines_into_blocks(lines: list[dict]) -> list[list[dict]]:
 
 
 def _extract_images(path: Path, saver: ImageSaver, result: ExtractionResult) -> None:
+    # 画像抽出は劣化しても本文抽出まで巻き添えにしないよう、失敗を握り潰さず
+    # ``result.degradations`` に痕跡として残す (silent degradation を observable に)。
+    # どの page/画像を・なぜ落としたかを構造化して記録し、後工程が「取りこぼし
+    # あり」を機械判定できるようにする。
     try:
         reader = PdfReader(str(path))
-    except Exception:
+    except Exception as e:
+        result.note_degraded(
+            "pdf.images", "pdf_reader_open_failed", error=repr(e)
+        )
         return
     seen_hashes: set[str] = set()
     for page_no, page in enumerate(reader.pages, start=1):
         try:
             images = page.images
-        except Exception:
+        except Exception as e:
+            result.note_degraded(
+                "pdf.images",
+                "page_images_enumeration_failed",
+                page=page_no,
+                error=repr(e),
+            )
             continue
         for img in images:
+            name = getattr(img, "name", None)
             try:
                 data = img.data
-            except Exception:
+            except Exception as e:
+                result.note_degraded(
+                    "pdf.images",
+                    "image_decode_failed",
+                    page=page_no,
+                    image=name,
+                    error=repr(e),
+                )
                 continue
             digest = hashlib.md5(data).hexdigest()
             if digest in seen_hashes:
@@ -135,8 +156,15 @@ def _extract_images(path: Path, saver: ImageSaver, result: ExtractionResult) -> 
             width = height = None
             try:
                 width, height = img.image.size
-            except Exception:
-                pass
+            except Exception as e:
+                # 画像自体は保存できたが寸法取得だけ失敗。要素は残しつつ痕跡を記録。
+                result.note_degraded(
+                    "pdf.images",
+                    "image_size_unavailable",
+                    page=page_no,
+                    image=name,
+                    error=repr(e),
+                )
             result.elements.append(
                 ImageElement(
                     file=rel_path,

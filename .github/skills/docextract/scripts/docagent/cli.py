@@ -28,6 +28,7 @@ import re
 import sys
 from pathlib import Path
 
+from docextract import obs as _obs
 from docextract import paths as _paths
 
 from .facts import FactStore
@@ -424,6 +425,14 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--item-types-file", default=argparse.SUPPRESS, help="ファクト種別の定義ファイル"
     )
+    common.add_argument(
+        "--run-id",
+        default=argparse.SUPPRESS,
+        help=(
+            "この実行の相関 ID (既定: 環境変数 DOCEXTRACT_RUN_ID、無ければ自動採番)。"
+            "docextract から引き継いで一連の処理を同じ ID で追跡する"
+        ),
+    )
 
     p = argparse.ArgumentParser(
         prog="docagent", description="集約 JSON ストアのデータ操作 API", parents=[common]
@@ -547,11 +556,17 @@ def main(argv: list[str] | None = None) -> int:
     args.facts = getattr(args, "facts", str(_paths.facts_path()))
     args.item_types_file = getattr(args, "item_types_file", str(_paths.item_types_path()))
     args.json = getattr(args, "json", False)
+    # docextract から引き継いだ相関 ID (環境変数 or --run-id) で監査ログを残す。
+    # これで docextract→docagent の一連の処理を同じ run_id で再構成できる。
+    log = _obs.open_run("docagent.cli", getattr(args, "run_id", None))
+    log.event("command.start", command=args.command)
     try:
         args.func(args)
     except DocAgentError as e:
+        log.error("command.error", command=args.command, error=str(e))
         print(f"エラー: {e}", file=sys.stderr)
         return 1
+    log.event("command.done", command=args.command)
     return 0
 
 

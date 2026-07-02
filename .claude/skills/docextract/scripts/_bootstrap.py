@@ -186,6 +186,17 @@ def _install_uv() -> str:
     return uv
 
 
+def _install_source(requirements: Path) -> Path:
+    """実際にインストールに使う依存記述を返す。
+
+    隣に ``requirements.lock`` (ハッシュ固定のロックファイル) があればそれを優先し、
+    決定論的・改竄検知つきのインストールにする。無ければ ``requirements.txt``
+    (floor-pin) にフォールバックする。
+    """
+    lock = requirements.with_name("requirements.lock")
+    return lock if lock.is_file() else requirements
+
+
 def _requirements_hash(requirements: Path) -> str:
     return hashlib.sha256(requirements.read_bytes()).hexdigest()
 
@@ -223,20 +234,26 @@ def ensure_env(script: Path, requirements: Path, skill: str = "docextract") -> N
         )
         subprocess.run([uv, "venv", "--python", ">=3.10", str(venv)], check=True)
 
-    # requirements が前回と同じなら再インストールしない。
+    # ロックファイルがあればそれを使う (ハッシュ固定 = 再現性・改竄検知)。
+    req_source = _install_source(requirements)
+    # 依存記述が前回と同じなら再インストールしない (使うファイル自体をハッシュ)。
     marker = venv / f".{skill}.reqhash"
-    want = _requirements_hash(requirements)
+    want = _requirements_hash(req_source)
     have = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
     if have != want:
+        locked = req_source.name == "requirements.lock"
+        note = "初回は数百 MB のダウンロードが発生します (OCR/表検出モデルは実行時に別途取得)。"
+        if locked:
+            note += " ロックファイル (ハッシュ固定) からインストールします。"
         # 数百 MB の依存インストール。承認ゲートで具体コマンドと規模を提示する。
         _gate(
             f"{skill} の依存パッケージを共有仮想環境へインストール",
-            [f"uv pip install --python {venv_python} -r {requirements}"],
-            note="初回は数百 MB のダウンロードが発生します (OCR/表検出モデルは実行時に別途取得)。",
+            [f"uv pip install --python {venv_python} -r {req_source}"],
+            note=note,
         )
         subprocess.run(
             [uv, "pip", "install", "--python", str(venv_python),
-             "-r", str(requirements)],
+             "-r", str(req_source)],
             check=True,
         )
         marker.write_text(want, encoding="utf-8")

@@ -72,11 +72,26 @@ class ExtractionResult:
     file_type: str
     metadata: dict[str, Any] = field(default_factory=dict)
     elements: list[Any] = field(default_factory=list)
+    # 劣化系 (画像デコード失敗等) を握り潰さず痕跡として残すログ。
+    # silent degradation を observable にするための構造化記録。
+    degradations: list[dict[str, Any]] = field(default_factory=list)
     # 以下は extract() が抽出後に付与する同一性情報 (抽出器単体では未設定)。
     id: Optional[str] = None  # パスハッシュ由来の安定・衝突しない文書 ID
     source_abspath: Optional[str] = None  # ID の基準となる正規化済み絶対パス
     source_hash: Optional[str] = None  # source_abspath の sha256 先頭8桁
     content_hash: Optional[str] = None  # ファイル内容の sha256 (重複・改変検知)
+
+    def note_degraded(self, stage: str, reason: str, **context: Any) -> dict[str, Any]:
+        """劣化 (要素のスキップ等) を 1 件記録する。
+
+        ``bare except: return`` で黙って落とす代わりに、どの段階 (stage) で・
+        なぜ (reason)・どの対象 (context: page/image 等) を落としたかを構造化して
+        残す。返した dict は呼び出し側が観測ログにも載せられる。
+        """
+        entry: dict[str, Any] = {"stage": stage, "reason": reason}
+        entry.update({k: v for k, v in context.items() if v is not None})
+        self.degradations.append(entry)
+        return entry
 
     def to_dict(self) -> dict[str, Any]:
         counts: dict[str, int] = {}
@@ -99,5 +114,12 @@ class ExtractionResult:
         d["file_type"] = self.file_type
         d["metadata"] = self.metadata
         d["summary"] = counts
+        # 劣化があった場合のみ痕跡を残す (正常時は既存出力を変えない)。
+        # 後工程が「この抽出は一部を取りこぼしている」と機械的に判定できる。
+        if self.degradations:
+            d["degraded"] = {
+                "count": len(self.degradations),
+                "items": self.degradations,
+            }
         d["elements"] = serialized
         return d

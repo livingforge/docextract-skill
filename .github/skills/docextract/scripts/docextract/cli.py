@@ -13,21 +13,9 @@ from __future__ import annotations
 import argparse
 import glob
 import sys
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
-from . import SUPPORTED_EXTENSIONS, extract, manifest, paths
-
-
-def _new_run_id() -> str:
-    """1 実行を識別する相関 ID（``run_<UTC時刻>_<短縮hex>``）。
-
-    バッチ／複数エージェント連携で一連の処理を横断追跡できるよう、CLI 実行ごとに
-    1 つ発番し、各文書のマニフェストエントリと標準出力に載せる。
-    """
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return f"run_{stamp}_{uuid.uuid4().hex[:6]}"
+from . import SUPPORTED_EXTENSIONS, extract, manifest, obs, paths
 
 
 def _scan_dir(directory: Path, recursive: bool) -> list[Path]:
@@ -103,6 +91,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="画像内の表検出 (rapid_layout + rapid_table) を無効化する",
     )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        metavar="ID",
+        help=(
+            "この実行の相関 ID を明示指定する (既定: 環境変数 DOCEXTRACT_RUN_ID、"
+            "無ければ自動採番)。docextract→docagent を同じ ID で貫きたいときに使う"
+        ),
+    )
     # Windows コンソール (cp932) でも日本語を安全に出力する
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -168,8 +165,12 @@ def main(argv: list[str] | None = None) -> int:
     if not files:
         print("処理対象のファイルがありませんでした。", file=sys.stderr)
         return 1
-    # この実行を横断追跡する相関 ID。各文書のマニフェストと出力に載せる。
-    run_id = _new_run_id()
+    # この実行を横断追跡する相関 ID。各文書のマニフェスト・出力・監査ログに載せる。
+    # ロガーは run_id を解決 (明示 > 環境変数 > 採番) し、監査ログ (JSON Lines) を
+    # 出力先配下 logs/<run_id>.jsonl に残す。extract() にも渡して同じ ID で貫く。
+    log = obs.open_run("docextract.cli", args.run_id, base_dir=args.output_dir)
+    run_id = log.run_id
+    log.event("run.start", targets=len(files))
     print(f"[run] run_id={run_id} 対象={len(files)} 件")
     processed_ids: list[str] = []
     for path in files:
@@ -182,8 +183,10 @@ def main(argv: list[str] | None = None) -> int:
                 ocr_backend=args.ocr_backend,
                 image_tables=not args.no_image_tables,
                 run_id=run_id,
+                log=log.child("docextract"),
             )
         except Exception as e:
+            log.error("run.doc_failed", source=str(path), error=repr(e))
             print(f"[NG] {path}: {e} (run_id={run_id})", file=sys.stderr)
             failed += 1
             continue
@@ -199,11 +202,20 @@ def main(argv: list[str] | None = None) -> int:
         mdata = manifest.load(Path(args.output_dir) / "index.json")
         for ids in manifest.duplicates(mdata).values():
             if any(i in seen for i in ids):
+                log.warn("run.duplicate", ids=sorted(ids))
                 print(f"[!] 内容が同一の文書があります: {', '.join(sorted(ids))}")
 
-    # 相関 ID 付きの完了サマリ。ログ上で 1 実行の成否をこの ID で追える。
+    # 相関 ID 付きの完了サマリ。監査ログ (JSON Lines) と標準出力の両方に残し、
+    # ログだけからでも 1 実行の成否・出力先を再構成できるようにする。
+    log.event(
+        "run.done",
+        succeeded=len(processed_ids),
+        failed=failed,
+        log_path=str(log.log_path) if log.log_path else None,
+    )
     print(
         f"[done] run_id={run_id} 成功={len(processed_ids)} 失敗={failed}"
+        + (f" ログ={log.log_path}" if log.log_path else "")
     )
     return 1 if failed else 0
 

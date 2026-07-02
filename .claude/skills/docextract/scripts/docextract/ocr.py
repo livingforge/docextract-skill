@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -26,7 +27,37 @@ _MAX_DIMENSION = 9500
 # 一般的な言語コード → RapidOCR の lang_type
 _RAPIDOCR_LANG = {"ja": "japan", "en": "en", "zh": "ch", "ko": "korean"}
 
+# 学習済みモデルの再現性固定 (env)。既定 (未設定) は RapidOCR の既定モデルを使う
+# — その既定モデルはインストール済み rapidocr のバージョンに紐づく
+# default_models.yaml が URL と SHA256 で固定しているため、requirements.lock で
+# ``rapidocr==`` をピンすればモデルダイジェストも推移的に固定される。
+# 以下は「どの ocr_version / どのローカルモデルを使うか」を明示ピンして
+# 自動ダウンロードの非決定性を排除するためのつまみ (完全オフライン運用向け)。
+_ENV_OCR_VERSION = "DOCEXTRACT_OCR_VERSION"      # 例: "PP-OCRv4" (det/rec 双方に適用)
+_ENV_OCR_DET_MODEL = "DOCEXTRACT_OCR_DET_MODEL"  # 検出モデルのローカル .onnx パス
+_ENV_OCR_REC_MODEL = "DOCEXTRACT_OCR_REC_MODEL"  # 認識モデルのローカル .onnx パス
+
 _rapidocr_engines: dict[str, object] = {}
+
+
+def _pinning_params() -> dict[str, object]:
+    """env で指定された OCR モデルのピン設定を RapidOCR params に変換する。
+
+    未指定なら空 dict (＝既定モデル)。ローカルモデルパスを渡せば自動ダウンロード
+    を完全に回避でき、監査済みモデルで決定論的に動かせる。
+    """
+    params: dict[str, object] = {}
+    version = os.environ.get(_ENV_OCR_VERSION)
+    if version:
+        params["Det.ocr_version"] = version
+        params["Rec.ocr_version"] = version
+    det = os.environ.get(_ENV_OCR_DET_MODEL)
+    if det:
+        params["Det.model_path"] = det
+    rec = os.environ.get(_ENV_OCR_REC_MODEL)
+    if rec:
+        params["Rec.model_path"] = rec
+    return params
 
 
 def ocr_image(path: str | Path, lang: str = "ja", backend: str = "auto") -> Optional[str]:
@@ -43,9 +74,10 @@ def _get_rapidocr_engine(lang: str):
     if key not in _rapidocr_engines:
         from rapidocr import RapidOCR
 
-        _rapidocr_engines[key] = RapidOCR(
-            params={"Rec.lang_type": key, "Global.log_level": "error"}
-        )
+        params: dict[str, object] = {"Rec.lang_type": key, "Global.log_level": "error"}
+        # env で明示ピンされたモデル/バージョンがあれば上書きする (再現性固定)。
+        params.update(_pinning_params())
+        _rapidocr_engines[key] = RapidOCR(params=params)
     return _rapidocr_engines[key]
 
 
