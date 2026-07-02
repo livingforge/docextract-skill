@@ -1,10 +1,11 @@
 """コマンドラインインターフェース。
 
 例:
-    python -m docextract report.docx -o out
+    python -m docextract report.docx                   # 既定 .docextract/output/ へ
     python -m docextract docs\\*.pdf slides.pptx
     python -m docextract --dir 資料フォルダ            # フォルダ内の対応ファイルを一括
     python -m docextract --dir 資料フォルダ -r          # サブフォルダも再帰的に
+    python -m docextract report.docx -o out            # 出力先を明示指定
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import glob
 import sys
 from pathlib import Path
 
-from . import SUPPORTED_EXTENSIONS, extract
+from . import SUPPORTED_EXTENSIONS, extract, paths
 
 
 def _scan_dir(directory: Path, recursive: bool) -> list[Path]:
@@ -66,8 +67,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "-o",
         "--output-dir",
-        default="output",
-        help="出力先ディレクトリ (既定: output)",
+        default=None,
+        help="出力先ディレクトリ (既定: .docextract/output、env DOCEXTRACT_HOME で基点変更可)",
     )
     parser.add_argument(
         "--no-ocr",
@@ -98,6 +99,11 @@ def main(argv: list[str] | None = None) -> int:
             pass
 
     args = parser.parse_args(argv)
+
+    # 既定の出力先を解決 (extract() 内部でも解決されるが、下の完了メッセージで
+    # 実際の出力先を表示するためここで確定させておく)。
+    if args.output_dir is None:
+        args.output_dir = str(paths.output_dir())
 
     if not args.inputs and not args.dir:
         parser.error("入力ファイルまたは --dir <フォルダ> を1つ以上指定してください")

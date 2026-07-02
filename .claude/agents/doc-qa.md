@@ -26,8 +26,9 @@ tools: Bash, Read, Glob, Grep
   python .claude/skills/docextract/scripts/run_docagent.py query --category "<カテゴリ>"   # 絞り込み
   python .claude/skills/docextract/scripts/run_docagent.py get <id>       # 1件の詳細（要約・キーワード）
   ```
-- **結果の場所**: 抽出結果は `output/<名前>_<拡張子>/result.json`、まとめた一覧は
-  集約 JSON（既定 `store/library.json`）。1ファイルで欲しい人には
+- **結果の場所**: 抽出結果は `.docextract/output/<名前>_<拡張子>/result.json`、
+  まとめた一覧は集約 JSON（既定 `.docextract/store/library.json`）。いずれも
+  プロジェクト直下の `.docextract/` 配下。1ファイルで欲しい人には
   `python .claude/skills/docextract/scripts/run_docagent.py export -o library.json` を案内する。
 - **困りごと**（例と答え方）:
   - 「対応してない形式と言われた」→ 旧形式 `.doc/.xls/.ppt` は非対応。新形式

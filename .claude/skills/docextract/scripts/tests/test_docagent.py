@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from docagent import Library, DocAgentError, doc_id_from_source
+from docagent import cli
 from docagent.store import PACKAGED_CATEGORIES, default_categories
 
 DEFAULT_CATS = default_categories()
@@ -113,6 +114,38 @@ class DocAgentTest(unittest.TestCase):
         # force で許可
         lib.set_category("report_docx", "臨時カテゴリ", force=True)
         self.assertEqual(lib.get("report_docx")["category"], "臨時カテゴリ")
+
+    # ── カテゴリ名の表記揺れ吸収 (スクリプト側で正規化して続行) ──
+    def test_set_category_normalizes_variants(self):
+        rp = self._write_result("a.docx", texts=["x"])
+        lib = self._lib()
+        lib.add_from_result(rp)
+        # 囲み記号・前後空白を剥がす
+        lib.set_category("a_docx", " 『議事録』 ")
+        self.assertEqual(lib.get("a_docx")["category"], "議事録")
+        # 全角スラッシュ・区切り揺れ (NFKC + ゆるい一致)
+        lib.set_category("a_docx", "見積／費用")
+        self.assertEqual(lib.get("a_docx")["category"], "見積・費用")
+        # 一意な前方一致 (途中まで)
+        lib.set_category("a_docx", "報告")
+        self.assertEqual(lib.get("a_docx")["category"], "報告・レポート")
+
+    def test_update_normalizes_category(self):
+        rp = self._write_result("b.pptx", texts=["x"])
+        lib = self._lib()
+        lib.add_from_result(rp)
+        doc = lib.update("b_pptx", category="「計画・提案」", summary="s")
+        self.assertEqual(doc["category"], "計画・提案")
+
+    def test_set_category_still_rejects_far_input(self):
+        rp = self._write_result("a.docx", texts=["x"])
+        lib = self._lib()
+        lib.add_from_result(rp)
+        with self.assertRaises(DocAgentError):
+            lib.set_category("a_docx", "全く無関係な名称です")
+        # force なら正規化のみで任意カテゴリを許可 (囲みは剥がす)
+        lib.set_category("a_docx", "『臨時カテゴリ』", force=True)
+        self.assertEqual(lib.get("a_docx")["category"], "臨時カテゴリ")
 
     def test_update_combined(self):
         rp = self._write_result("plan.pptx", texts=["新機能の提案。"])
@@ -269,6 +302,65 @@ class DocAgentTest(unittest.TestCase):
         out = self._lib().prep("gone_docx")
         self.assertIsNone(out["text"])
         self.assertIn("中身のテキスト", out["preview"])
+
+    # ── 取り込みガード (元ファイルの直接渡し・壊れた JSON を弾く) ──
+    def test_add_rejects_raw_office_file(self):
+        # result.json ではなく Excel 等の元ファイルを直接渡すと、抽出を促す
+        # 分かりやすいエラーにする（生の JSONDecodeError にしない）。
+        raw = self.root / "売上.xlsx"
+        raw.write_bytes(b"PK\x03\x04not-a-real-xlsx")
+        lib = self._lib()
+        with self.assertRaises(DocAgentError) as cm:
+            lib.add_from_result(raw)
+        self.assertIn("docextract", str(cm.exception))
+
+    def test_prep_rejects_raw_office_file(self):
+        raw = self.root / "資料.pdf"
+        raw.write_bytes(b"%PDF-1.7 binary")
+        with self.assertRaises(DocAgentError) as cm:
+            self._lib().prep(str(raw))
+        self.assertIn("docextract", str(cm.exception))
+
+    def test_add_rejects_invalid_json(self):
+        broken = self.root / "broken_result.json"
+        broken.write_text("{ this is not valid json", encoding="utf-8")
+        lib = self._lib()
+        with self.assertRaises(DocAgentError):
+            lib.add_from_result(broken)
+
+    def test_add_rejects_json_without_elements(self):
+        wrong = self.root / "wrong_result.json"
+        wrong.write_text(json.dumps({"foo": "bar"}), encoding="utf-8")
+        lib = self._lib()
+        with self.assertRaises(DocAgentError) as cm:
+            lib.add_from_result(wrong)
+        self.assertIn("elements", str(cm.exception))
+
+    # ── CLI: キーワード区切りの揺れ吸収 ──
+    def test_split_keywords_mixed_delimiters(self):
+        self.assertEqual(
+            cli._split_keywords("契約、金額，納期;保守；別表\n年額,契約"),
+            ["契約", "金額", "納期", "保守", "別表", "年額"],  # 重複「契約」は除去
+        )
+        self.assertEqual(cli._split_keywords("a,  ,b "), ["a", "b"])  # 空要素・空白除去
+        self.assertIsNone(cli._split_keywords(None))
+
+    # ── CLI: set 系の自動登録 (前段 prep/add のスキップを補完) ──
+    def test_resolve_target_auto_registers_path(self):
+        rp = self._write_result("c.docx", texts=["中身"])
+        lib = self._lib()
+        doc_id, auto = cli._resolve_target(lib, str(rp))
+        self.assertEqual(doc_id, "c_docx")
+        self.assertTrue(auto)
+        self.assertIsNotNone(lib.find("c_docx"))
+        # 2 回目は登録済みなので自動登録しない
+        doc_id2, auto2 = cli._resolve_target(lib, "c_docx")
+        self.assertEqual((doc_id2, auto2), ("c_docx", False))
+
+    def test_resolve_target_unregistered_id_passthrough(self):
+        # パスでも登録済み ID でもないなら素通しし、後続の get の親切なエラーに委ねる
+        lib = self._lib()
+        self.assertEqual(cli._resolve_target(lib, "nope"), ("nope", False))
 
     # ── 集約 export ──
     def test_export_shape(self):

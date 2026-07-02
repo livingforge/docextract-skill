@@ -26,7 +26,8 @@
 | pp_layout_cdla (レイアウト解析) | RapidAI | Apache-2.0 |
 | slanet-plus (表構造認識) | RapidAI (PaddleOCR 由来) | Apache-2.0 |
 
-- モデルはユーザー環境の site-packages 配下にキャッシュされる
+- モデルは共有仮想環境 (プロジェクトルート直下の `.venv`) の site-packages 配下に
+  キャッシュされる (起動スクリプトが uv で自動構築する環境)
 - 完全オフライン運用では、ネットワークのある環境で一度実行してキャッシュを
   作るか、`--ocr-backend windows` + `--no-image-tables` で運用する
 

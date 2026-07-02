@@ -26,8 +26,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
+
+from docextract import paths as _paths
 
 from .store import (
     DEFAULT_CATEGORIES,
@@ -103,31 +106,63 @@ def cmd_add(args):
 
 def cmd_set_category(args):
     lib = _load(args)
-    doc = lib.set_category(args.id, args.category, force=args.force)
+    doc_id, auto = _resolve_target(lib, args.id)
+    doc = lib.set_category(doc_id, args.category, force=args.force)
     lib.save()
-    _emit(doc, args.json, lambda o: print(f"カテゴリを設定: {o['id']} -> {o['category']} (status={o['status']})"))
+    normalized_from = args.category if args.category != doc["category"] else None
+    payload = _doc_payload(doc, auto_registered=auto, category_normalized_from=normalized_from)
+
+    def human(o):
+        if auto:
+            print(f"自動登録しました (前段の登録を補完): {doc_id}")
+        if normalized_from:
+            print(f"カテゴリを正規化: 「{normalized_from}」→「{doc['category']}」")
+        print(f"カテゴリを設定: {o['id']} -> {o['category']} (status={o['status']})")
+
+    _emit(payload, args.json, human)
 
 
 def cmd_set_summary(args):
     lib = _load(args)
+    doc_id, auto = _resolve_target(lib, args.id)
     keywords = _split_keywords(args.keywords)
-    doc = lib.set_summary(args.id, args.text, keywords)
+    doc = lib.set_summary(doc_id, args.text, keywords)
     lib.save()
-    _emit(doc, args.json, lambda o: print(f"要約を設定: {o['id']} (status={o['status']})"))
+    payload = _doc_payload(doc, auto_registered=auto)
+
+    def human(o):
+        if auto:
+            print(f"自動登録しました (前段の登録を補完): {doc_id}")
+        print(f"要約を設定: {o['id']} (status={o['status']})")
+
+    _emit(payload, args.json, human)
 
 
 def cmd_set(args):
     lib = _load(args)
+    doc_id, auto = _resolve_target(lib, args.id)
     keywords = _split_keywords(args.keywords) if args.keywords is not None else None
     doc = lib.update(
-        args.id,
+        doc_id,
         category=args.category,
         summary=args.summary,
         keywords=keywords,
         force=args.force,
     )
     lib.save()
-    _emit(doc, args.json, lambda o: print(f"更新しました: {o['id']} (category={o['category']}, status={o['status']})"))
+    normalized_from = (
+        args.category if (args.category is not None and args.category != doc["category"]) else None
+    )
+    payload = _doc_payload(doc, auto_registered=auto, category_normalized_from=normalized_from)
+
+    def human(o):
+        if auto:
+            print(f"自動登録しました (前段の登録を補完): {doc_id}")
+        if normalized_from:
+            print(f"カテゴリを正規化: 「{normalized_from}」→「{doc['category']}」")
+        print(f"更新しました: {o['id']} (category={o['category']}, status={o['status']})")
+
+    _emit(payload, args.json, human)
 
 
 def cmd_get(args):
@@ -221,10 +256,56 @@ def cmd_categories(args):
 
 
 # ── 補助 ─────────────────────────────────────────────────────
+# キーワードの区切り揺れ (半角/全角カンマ・読点・セミコロン・改行) を吸収する。
+_KEYWORD_DELIMS = re.compile(r"[,、，;；\n\r\t]+")
+
+
 def _split_keywords(value: str | None) -> list[str] | None:
+    """カンマ区切り想定の文字列を、区切り揺れを吸収しつつ語のリストへ。
+
+    LLM は ``a、b`` ``a; b`` のように区切りを揺らすことがある。複数の区切りで
+    分割し、前後空白除去・重複除去 (出現順維持) する。
+    """
     if value is None:
         return None
-    return [k.strip() for k in value.split(",") if k.strip()]
+    out: list[str] = []
+    seen: set[str] = set()
+    for k in _KEYWORD_DELIMS.split(value):
+        k = k.strip()
+        if k and k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
+
+def _resolve_target(lib: Library, target: str) -> tuple[str, bool]:
+    """set 系で ID の代わりに result.json パスが渡された事故を吸収する。
+
+    前段の ``prep``/``add`` (登録) を飛ばして ``set`` を叩いても失敗しないよう、
+    ターゲットが未登録かつ result.json のパスなら自動登録してから続行する。
+    返り値は ``(doc_id, auto_registered)``。未登録 ID (パスでもない) の場合は
+    そのまま返し、後続の ``get`` が「次の一手」付きエラーを出すのに委ねる。
+    """
+    if lib.find(target) is not None:
+        return target, False
+    if Path(target).is_file():
+        # add_from_result は元ファイル直渡し・壊れた JSON を親切なエラーで弾く。
+        entry = lib.add_from_result(target, overwrite=True)
+        return entry["id"], True
+    return target, False
+
+
+def _doc_payload(doc: dict, **flags) -> dict:
+    """出力用に doc のコピーへ透明化フラグを添える (ストアには保存しない)。
+
+    ``auto_registered`` / ``category_normalized_from`` のように「スクリプトが
+    何を自動補正したか」を呼び出し元へ必ず返し、黙って直さない。
+    """
+    payload = dict(doc)
+    for k, v in flags.items():
+        if v:
+            payload[k] = v
+    return payload
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -332,8 +413,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     # 共通オプションは default=SUPPRESS のため、未指定なら属性ごと無い。ここで補う。
-    args.store = getattr(args, "store", str(DEFAULT_STORE))
-    args.categories = getattr(args, "categories", str(DEFAULT_CATEGORIES))
+    # 既定パスは実行時に解決し、環境変数 DOCEXTRACT_HOME を docextract と一括で
+    # 反映させる (import 時に固定しない)。
+    args.store = getattr(args, "store", str(_paths.store_path()))
+    args.categories = getattr(args, "categories", str(_paths.categories_path()))
     args.json = getattr(args, "json", False)
     try:
         args.func(args)

@@ -1,7 +1,7 @@
 ---
 name: doc-guide
 description: 資料整理の「最初の窓口」エージェント。AI に不慣れな人でも使えるよう、ドキュメントのアップロード（フォルダ提示）から、抽出・カテゴライズ・要約・集約 JSON への保存、結果確認までを、平易な言葉で対話しながら伴走する。「資料を整理して」「ドキュメントをまとめて」「使い方が分からない」などの入口で使う。
-tools: Skill, Bash, Read, Glob, Write
+tools: ['runCommands', 'search', 'editFiles']
 ---
 
 あなたは **DocExtract 資料整理アシスタントの窓口担当**です。利用者の多くは AI や
@@ -33,12 +33,13 @@ tools: Skill, Bash, Read, Glob, Write
 確認が取れたら、対象をまとめて抽出する:
 
 ```
-python .github/skills/docextract/scripts/run_docextract.py <ファイル...> -o output
+python .github/skills/docextract/scripts/run_docextract.py <ファイル...>
 ```
 
 - コマンドは**常にプロジェクトルートで実行**する（スクリプトの場所へ `cd` しない。
   以降のコマンドもすべて同じ）。入力ファイルはルートからの相対パスか絶対パスで渡す。
-- ファイルごとに `output/<名前>_<拡張子>/result.json` が作られる。
+- ファイルごとに `.docextract/output/<名前>_<拡張子>/result.json` が作られる
+  （出力はプロジェクト直下の `.docextract/` にまとまり、既存フォルダと衝突しない）。
 - OCR/表検出モデルの初回ダウンロードで時間がかかる場合がある旨を、事前に一言添える。
 
 ### ステップ3: 分類＋要約（1文書ずつ「準備 → 判断 → 保存」）
@@ -46,7 +47,7 @@ python .github/skills/docextract/scripts/run_docextract.py <ファイル...> -o 
 あとは各文書につき2コマンドで完結する。
 
 ```
-python .github/skills/docextract/scripts/run_docagent.py prep output/<...>/result.json --json
+python .github/skills/docextract/scripts/run_docagent.py prep .docextract/output/<...>/result.json --json
 ```
 
 `prep` は登録・解析済み判定・カテゴリ一覧・本文抜粋をまとめて返す。

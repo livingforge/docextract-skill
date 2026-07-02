@@ -3,10 +3,11 @@
 
 使い方 (Python API):
     from docextract import extract
-    result = extract("report.docx", output_dir="out")
+    result = extract("report.docx")                 # 既定 .docextract/output/ へ
+    result = extract("report.docx", output_dir="out")  # 明示指定も可
 
 使い方 (CLI):
-    python -m docextract report.docx slides.pptx -o out
+    python -m docextract report.docx slides.pptx
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from . import paths
 from .extractors import extract_docx, extract_pdf, extract_pptx, extract_xlsx
 from .extractors.base import ImageSaver
 from .image_tables import detect_tables
@@ -36,7 +38,7 @@ SUPPORTED_EXTENSIONS = tuple(_EXTRACTORS)
 
 def extract(
     input_path: str | Path,
-    output_dir: str | Path = "output",
+    output_dir: str | Path | None = None,
     save_json: bool = True,
     ocr: bool = True,
     ocr_lang: str = "ja",
@@ -47,7 +49,8 @@ def extract(
 
     画像は ``<output_dir>/<入力ファイル名>/images/`` に保存され、
     ``save_json=True`` なら ``<output_dir>/<入力ファイル名>/result.json``
-    も書き出す。
+    も書き出す。``output_dir`` 省略時は ``.docextract/output`` (環境変数
+    ``DOCEXTRACT_HOME`` で基点を変更可能)。
 
     ``ocr=True`` の場合、抽出した各画像に対して OCR を実行し、
     画像内のテキストを ``ocr_text`` として付加する
@@ -59,6 +62,8 @@ def extract(
     ``from_image`` (元画像) と ``bbox_in_image`` が入る。
     """
     input_path = Path(input_path)
+    if output_dir is None:
+        output_dir = paths.output_dir()
     if not input_path.is_file():
         raise FileNotFoundError(f"ファイルが見つかりません: {input_path}")
 

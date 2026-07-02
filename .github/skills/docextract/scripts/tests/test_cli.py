@@ -72,12 +72,24 @@ def test_multiple_files_all_ok(tmp_path, make_docx, make_xlsx, capsys):
 
 
 def test_default_output_dir(tmp_path, make_docx, monkeypatch, capsys):
-    # -o 省略時は cwd 直下の output/ を使う
+    # -o 省略時は cwd 直下の .docextract/output/ を使う (既存フォルダと衝突しない)
     src = make_docx("a.docx", paragraphs=[("x", None)])
+    monkeypatch.delenv("DOCEXTRACT_HOME", raising=False)
     monkeypatch.chdir(tmp_path)
     rc = main([str(src)])
     assert rc == 0
-    assert (tmp_path / "output" / "a_docx" / "result.json").exists()
+    assert (tmp_path / ".docextract" / "output" / "a_docx" / "result.json").exists()
+
+
+def test_docextract_home_env_overrides_output_base(tmp_path, make_docx, monkeypatch, capsys):
+    # DOCEXTRACT_HOME で基点を差し替えると出力先も追従する
+    src = make_docx("a.docx", paragraphs=[("x", None)])
+    home = tmp_path / "custom-home"
+    monkeypatch.setenv("DOCEXTRACT_HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    rc = main([str(src)])
+    assert rc == 0
+    assert (home / "output" / "a_docx" / "result.json").exists()
 
 
 # --------------------------------------------------------------------------
