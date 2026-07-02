@@ -118,7 +118,7 @@ class TestDocx(ExtractorTestBase):
 
         images = self.elements_of(data, "image")
         self.assertEqual(len(images), 1)
-        saved = self.tmp / "out" / "sample_docx" / images[0]["file"]
+        saved = self.tmp / "out" / data["id"] / images[0]["file"]
         self.assertTrue(saved.is_file())
 
         # 出現順: 見出し < 段落 < 表 < 画像
@@ -126,8 +126,8 @@ class TestDocx(ExtractorTestBase):
         self.assertEqual(orders, sorted(orders))
 
     def test_result_json_written_utf8(self):
-        self.run_extract(self.path)
-        raw = (self.tmp / "out" / "sample_docx" / "result.json").read_text(
+        data = self.run_extract(self.path)
+        raw = (self.tmp / "out" / data["id"] / "result.json").read_text(
             encoding="utf-8"
         )
         self.assertIn("見出し", raw)  # ensure_ascii=False

@@ -6,10 +6,13 @@ docextract の抽出結果 (``output/``) と docagent の集約ストア (``stor
 ドット始まりの固有名を1つだけ作る方針 (``.pytest_cache`` 等と同じ発想)。
 
     .docextract/
-      output/            <- docextract の抽出結果 (<名前>_<拡張子>/result.json)
+      output/            <- docextract の抽出結果 (<id>/result.json)
+        index.json       <- 抽出マニフェスト (id で索引する台帳)
       store/
-        library.json     <- docagent の集約 JSON
+        library.json     <- docagent の集約 JSON (文書ごとの分類・要約)
         categories.json  <- 利用者が編集できるタクソノミー
+        facts.json       <- 抽出ファクト (仕様・要件項目、出典付き)
+        item_types.json  <- ファクト種別の定義 (利用者が編集できる)
 
 配置換えは環境変数 ``DOCEXTRACT_HOME`` で行う (docextract / docagent 共通の
 唯一のつまみ)。個別の上書きは docextract の ``--output-dir`` /
@@ -39,6 +42,16 @@ def output_dir() -> Path:
     return home_dir() / "output"
 
 
+def manifest_path() -> Path:
+    """抽出マニフェスト (``<home>/output/index.json``)。
+
+    抽出済み文書を ID で索引する台帳。個別の出力先を ``--output-dir`` で
+    変えた場合は、その出力先直下の ``index.json`` を使う (extract() が明示的に
+    パスを渡す)。
+    """
+    return output_dir() / "index.json"
+
+
 def store_dir() -> Path:
     """docagent の集約ストア用ディレクトリ (``<home>/store``)。"""
     return home_dir() / "store"
@@ -52,3 +65,13 @@ def store_path() -> Path:
 def categories_path() -> Path:
     """タクソノミー定義ファイル (``<home>/store/categories.json``)。"""
     return store_dir() / "categories.json"
+
+
+def facts_path() -> Path:
+    """抽出ファクト (仕様・要件項目) の集約 JSON (``<home>/store/facts.json``)。"""
+    return store_dir() / "facts.json"
+
+
+def item_types_path() -> Path:
+    """ファクトの種別定義ファイル (``<home>/store/item_types.json``)。"""
+    return store_dir() / "item_types.json"

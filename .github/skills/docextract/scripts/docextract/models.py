@@ -72,6 +72,11 @@ class ExtractionResult:
     file_type: str
     metadata: dict[str, Any] = field(default_factory=dict)
     elements: list[Any] = field(default_factory=list)
+    # 以下は extract() が抽出後に付与する同一性情報 (抽出器単体では未設定)。
+    id: Optional[str] = None  # パスハッシュ由来の安定・衝突しない文書 ID
+    source_abspath: Optional[str] = None  # ID の基準となる正規化済み絶対パス
+    source_hash: Optional[str] = None  # source_abspath の sha256 先頭8桁
+    content_hash: Optional[str] = None  # ファイル内容の sha256 (重複・改変検知)
 
     def to_dict(self) -> dict[str, Any]:
         counts: dict[str, int] = {}
@@ -80,10 +85,19 @@ class ExtractionResult:
             d = el.to_dict()
             counts[d["type"]] = counts.get(d["type"], 0) + 1
             serialized.append(d)
-        return {
-            "source": self.source,
-            "file_type": self.file_type,
-            "metadata": self.metadata,
-            "summary": counts,
-            "elements": serialized,
-        }
+        d: dict[str, Any] = {}
+        # ID を先頭に置き、機械可読な文書として扱いやすくする。
+        if self.id is not None:
+            d["id"] = self.id
+        d["source"] = self.source
+        if self.source_abspath is not None:
+            d["source_abspath"] = self.source_abspath
+        if self.source_hash is not None:
+            d["source_hash"] = self.source_hash
+        if self.content_hash is not None:
+            d["content_hash"] = self.content_hash
+        d["file_type"] = self.file_type
+        d["metadata"] = self.metadata
+        d["summary"] = counts
+        d["elements"] = serialized
+        return d

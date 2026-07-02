@@ -15,7 +15,7 @@ import glob
 import sys
 from pathlib import Path
 
-from . import SUPPORTED_EXTENSIONS, extract, paths
+from . import SUPPORTED_EXTENSIONS, extract, manifest, paths
 
 
 def _scan_dir(directory: Path, recursive: bool) -> list[Path]:
@@ -156,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     if not files:
         print("処理対象のファイルがありませんでした。", file=sys.stderr)
         return 1
+    processed_ids: list[str] = []
     for path in files:
         try:
             data = extract(
@@ -171,8 +172,18 @@ def main(argv: list[str] | None = None) -> int:
             failed += 1
             continue
         summary = ", ".join(f"{k}={v}" for k, v in data["summary"].items()) or "抽出なし"
-        out = Path(args.output_dir) / f"{path.stem}_{path.suffix.lstrip('.').lower()}" / "result.json"
-        print(f"[OK] {path} -> {out} ({summary})")
+        out = Path(args.output_dir) / data["id"] / "result.json"
+        processed_ids.append(data["id"])
+        print(f"[OK] {path} -> {out} (id={data['id']}, {summary})")
+
+    # 内容が同一の文書 (別名でコピーされた資料など) をマニフェストから検知して知らせる。
+    # ID はパスごとに一意なので抽出は正しく分離されるが、重複は把握しておく価値がある。
+    if processed_ids:
+        seen = set(processed_ids)
+        mdata = manifest.load(Path(args.output_dir) / "index.json")
+        for ids in manifest.duplicates(mdata).values():
+            if any(i in seen for i in ids):
+                print(f"[!] 内容が同一の文書があります: {', '.join(sorted(ids))}")
 
     return 1 if failed else 0
 

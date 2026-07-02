@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from . import paths
+from . import identity, manifest, paths
 from .extractors import extract_docx, extract_pdf, extract_pptx, extract_xlsx
 from .extractors.base import ImageSaver
 from .image_tables import detect_tables
@@ -44,13 +44,15 @@ def extract(
     ocr_lang: str = "ja",
     ocr_backend: str = "auto",
     image_tables: bool = True,
+    record_manifest: bool = True,
 ) -> dict[str, Any]:
     """1 つの文書を解析し、抽出結果を dict で返す。
 
-    画像は ``<output_dir>/<入力ファイル名>/images/`` に保存され、
-    ``save_json=True`` なら ``<output_dir>/<入力ファイル名>/result.json``
-    も書き出す。``output_dir`` 省略時は ``.docextract/output`` (環境変数
-    ``DOCEXTRACT_HOME`` で基点を変更可能)。
+    出力先は入力パスから決まる**衝突しない ID** (:mod:`identity`) のフォルダ:
+    画像は ``<output_dir>/<id>/images/`` に保存され、``save_json=True`` なら
+    ``<output_dir>/<id>/result.json`` も書き出す。ID は正規化済み絶対パスの
+    ハッシュを含むため、別フォルダの同名ファイルでも衝突しない。``output_dir``
+    省略時は ``.docextract/output`` (環境変数 ``DOCEXTRACT_HOME`` で基点変更可)。
 
     ``ocr=True`` の場合、抽出した各画像に対して OCR を実行し、
     画像内のテキストを ``ocr_text`` として付加する
@@ -60,6 +62,9 @@ def extract(
     (rapid_layout + rapid_table) を実行し、見つかった表を
     通常の ``table`` 要素として追加する。location には
     ``from_image`` (元画像) と ``bbox_in_image`` が入る。
+
+    ``record_manifest=True`` かつ ``save_json=True`` なら、出力先直下の
+    ``index.json`` (抽出マニフェスト) にこの文書を ID で登録する。
     """
     input_path = Path(input_path)
     if output_dir is None:
@@ -73,8 +78,11 @@ def extract(
         supported = ", ".join(SUPPORTED_EXTENSIONS)
         raise ValueError(f"未対応の形式です: {ext} (対応形式: {supported})")
 
-    # 拡張子違いの同名ファイルが衝突しないよう、拡張子込みの名前で分ける
-    doc_out_dir = Path(output_dir) / f"{input_path.stem}_{ext.lstrip('.')}"
+    # 出力フォルダ名は identity で作る衝突しない ID。別フォルダの同名ファイルでも
+    # パスが違えば ID が異なるため上書き事故が起きない。
+    source_key = identity.canonical_source(input_path)
+    doc_id = identity.doc_id(input_path, source_key=source_key)
+    doc_out_dir = Path(output_dir) / doc_id
     doc_out_dir.mkdir(parents=True, exist_ok=True)
 
     saver = ImageSaver(doc_out_dir)
@@ -93,6 +101,12 @@ def extract(
                     location["bbox_in_image"] = bbox
                 result.elements.append(TableElement(rows=rows, location=location))
 
+    # 抽出後に同一性情報を付与する (抽出器は本文の抽出だけに集中させる)。
+    result.id = doc_id
+    result.source_abspath = source_key
+    result.source_hash = identity.source_hash(source_key)
+    result.content_hash = identity.content_hash(input_path)
+
     data = result.to_dict()
 
     if save_json:
@@ -100,4 +114,18 @@ def extract(
         json_path.write_text(
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        if record_manifest:
+            manifest.record(
+                {
+                    "id": doc_id,
+                    "source": str(input_path),
+                    "source_abspath": source_key,
+                    "source_hash": result.source_hash,
+                    "content_hash": result.content_hash,
+                    "file_type": result.file_type,
+                    "result_path": (doc_out_dir / "result.json").as_posix(),
+                    "size": input_path.stat().st_size,
+                },
+                path=Path(output_dir) / "index.json",
+            )
     return data

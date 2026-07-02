@@ -63,6 +63,7 @@ def make_docx(tmp_path: Path):
         if image_path is not None:
             d.add_picture(str(image_path))
         path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
         d.save(str(path))
         return path
 
@@ -110,6 +111,7 @@ def make_xlsx(tmp_path: Path):
             ws = wb[sheet_name]
             ws.add_image(XLImage(str(png_path)), anchor)
         path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
         wb.save(str(path))
         return path
 
@@ -157,6 +159,7 @@ def make_pptx(tmp_path: Path):
         if author is not None:
             prs.core_properties.author = author
         path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
         prs.save(str(path))
         return path
 
@@ -201,6 +204,7 @@ def make_pdf(tmp_path: Path):
         if author is not None:
             doc.set_metadata({**(doc.metadata or {}), "author": author})
         path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(path))
         doc.close()
         return path

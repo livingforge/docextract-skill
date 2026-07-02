@@ -78,7 +78,9 @@ def test_default_output_dir(tmp_path, make_docx, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     rc = main([str(src)])
     assert rc == 0
-    assert (tmp_path / ".docextract" / "output" / "a_docx" / "result.json").exists()
+    outroot = tmp_path / ".docextract" / "output"
+    assert list(outroot.glob("*/result.json"))  # フォルダ名は衝突しない ID
+    assert (outroot / "index.json").exists()  # 抽出マニフェストも作られる
 
 
 def test_docextract_home_env_overrides_output_base(tmp_path, make_docx, monkeypatch, capsys):
@@ -89,7 +91,7 @@ def test_docextract_home_env_overrides_output_base(tmp_path, make_docx, monkeypa
     monkeypatch.chdir(tmp_path)
     rc = main([str(src)])
     assert rc == 0
-    assert (home / "output" / "a_docx" / "result.json").exists()
+    assert list((home / "output").glob("*/result.json"))
 
 
 # --------------------------------------------------------------------------

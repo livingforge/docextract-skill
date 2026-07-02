@@ -6,82 +6,82 @@ license: MIT
 
 # docextract
 
-Office 文書 (Word / Excel / PowerPoint) と PDF を解析し、**テキスト・表・画像**を
-構造化された JSON として出力するスキル。文書内に「ピクセルとしてしか存在しない」
-コンテンツも取りこぼさないのが特徴:
+Parse Office documents (Word / Excel / PowerPoint) and PDF into structured JSON
+of **text, tables, and images**. What sets it apart is capturing content that
+exists only as pixels:
 
-- 画像・スクリーンショット内のテキスト → **OCR** (RapidOCR) で `ocr_text` として付加
-- 画像として貼られた表 → **表検出 + 構造復元** (rapid_layout + rapid_table) で
-  通常の `table` 要素 (2次元配列) として出力
+- Text inside images / screenshots → **OCR** (RapidOCR), attached as `ocr_text`
+- Tables pasted as pictures → **detected and reconstructed** (rapid_layout +
+  rapid_table) into ordinary `table` elements (2-D arrays)
 
-依存はすべて商用利用可能な OSS (MIT / BSD / Apache-2.0)。詳細は
-[package-meta/docextract/dependencies.md](../../package-meta/docextract/dependencies.md)。
+All dependencies are OSS cleared for commercial use (MIT / BSD / Apache-2.0);
+see [package-meta/docextract/dependencies.md](../../package-meta/docextract/dependencies.md).
 
-## セットアップ (自動)
+## Setup (automatic)
 
-手動インストールは不要。初回に `run_docextract.py` / `run_docagent.py` を実行すると、
-起動スクリプトがプロジェクトルート直下に共有仮想環境 `.venv` を [uv](https://docs.astral.sh/uv/)
-で用意し、`requirements.txt` を入れて、その環境で本体を実行し直す。以降は差分が無ければ
-即座に起動する (依存やモデルで環境を汚さない)。
+No manual install. The first run of `run_docextract.py` / `run_docagent.py`
+bootstraps a shared `.venv` at the project root with [uv](https://docs.astral.sh/uv/),
+installs `requirements.txt`, and re-executes there; later runs start instantly.
 
-- `uv` が無い場合は初回に公式インストーラで自動導入する
-  (抑止したいときは環境変数 `DOCEXTRACT_NO_UV_AUTOINSTALL=1`、その場合は手動で uv を入れる)
-- OCR・表検出モデル (数十 MB) は初回実行時に共有 `.venv` 配下へ自動ダウンロードされる
-- 完全オフライン運用ではネットワークのある環境で一度実行してキャッシュを作るか、
-  `--ocr-backend windows` (Windows のみ、OS 標準 OCR) を使う
+- `uv` is auto-installed on first use if missing (set `DOCEXTRACT_NO_UV_AUTOINSTALL=1`
+  to opt out and install it yourself)
+- OCR / table-detection models (tens of MB) download into `.venv` on first run
+- For fully offline use, run once online to warm the cache, or use
+  `--ocr-backend windows` (Windows only, built-in OCR)
 
-## 使い方
+## Usage
+
+Run **from the project root** — never `cd` into the scripts directory; the
+launcher is cwd-independent. Paths below are relative to the project root.
 
 ```bash
-python .claude/skills/docextract/scripts/run_docextract.py <入力ファイル...> -o <出力ディレクトリ>
-python .claude/skills/docextract/scripts/run_docextract.py --dir <フォルダ> -o <出力ディレクトリ>      # フォルダ一括
-python .claude/skills/docextract/scripts/run_docextract.py --dir <フォルダ> -r -o <出力ディレクトリ>   # 再帰
+python .claude/skills/docextract/scripts/run_docextract.py <files...> -o <output-dir>
+python .claude/skills/docextract/scripts/run_docextract.py --dir <folder> -o <output-dir>     # batch a folder
+python .claude/skills/docextract/scripts/run_docextract.py --dir <folder> -r -o <output-dir>  # recurse
 ```
 
-上のパスはプロジェクトルートからの相対パス。**常にプロジェクトルートで実行**し、
-スクリプトのある場所へ `cd` しない (起動スクリプトが cwd に依存せず動く)。
-抽出結果を扱う docagent も同様に `python .claude/skills/docextract/scripts/run_docagent.py <サブコマンド>` で起動する。
+- Formats: `.docx` `.xlsx` `.xlsm` `.pptx` `.pdf` (wildcards ok)
+- Each input yields `<output-dir>/<id>/` containing `result.json` and `images/`, where
+  `<id>` embeds a hash of the file's absolute path so same-named files in different
+  folders never collide. A manifest `<output-dir>/index.json` indexes all extractions by id.
+- `-d/--dir` (repeatable) batches every supported file in a folder; `-r` recurses.
+  Office temp files (`~$…`) are skipped
+- Other flags: `--no-ocr`, `--no-image-tables`, `--ocr-lang ja`,
+  `--ocr-backend auto|rapidocr|windows`
 
-- 対応形式: `.docx` `.xlsx` `.xlsm` `.pptx` `.pdf` (ワイルドカード可)
-- 入力ファイルごとに `<出力ディレクトリ>/<ファイル名>_<拡張子>/` が作られ、
-  `result.json` と `images/` (抽出画像) が出力される
-- **フォルダ一括**: `-d/--dir <フォルダ>` で指定フォルダ内の対応ファイルをすべて処理
-  (複数指定可)。`-r/--recursive` でサブフォルダも走査。位置引数にフォルダを渡しても
-  同じ (`~$` で始まる Office 一時ファイルは自動除外)
-- その他のオプション: `--no-ocr` (OCR 無効)、`--no-image-tables` (画像内表検出を無効)、
-  `--ocr-lang ja` (OCR 言語)、`--ocr-backend auto|rapidocr|windows`
+Work with extracted results through the same launcher:
+`python .claude/skills/docextract/scripts/run_docagent.py <subcommand>`.
 
-Python API として使う場合:
+Python API:
 
 ```python
 import sys; sys.path.insert(0, r".claude/skills/docextract/scripts")
 from docextract import extract
-data = extract("report.docx", output_dir="out")   # dict を返し result.json も書く
+data = extract("report.docx", output_dir="out")   # returns a dict, also writes result.json
 ```
 
-## 出力 JSON の読み方
+## Output
 
-`elements` 配列に文書内の要素が出現順で並ぶ。要素は 3 種類:
+`elements` lists the document's contents in reading order. Three types:
 
-| type | 内容 | 主なフィールド |
-|------|------|---------------|
-| `text` | 段落・見出し・テキストボックス | `content`, `style`, `location` |
-| `table` | 表 (2次元配列) | `rows`, `n_rows`, `n_cols`, `location` |
-| `image` | 抽出画像への参照 | `file`, `ocr_text`, `width`, `height`, `location` |
+| type | content | key fields |
+|------|---------|-----------|
+| `text` | paragraphs, headings, text boxes | `content`, `style`, `location` |
+| `table` | tables (2-D array) | `rows`, `n_rows`, `n_cols`, `location` |
+| `image` | reference to an extracted image | `file`, `ocr_text`, `width`, `height`, `location` |
 
-- `location` は形式ごとに異なる: docx=`order` (出現順) / xlsx=`sheet` /
-  pptx=`slide` / pdf=`page` + `bbox`
-- 画像内から検出された表は `location.from_image` に元画像のパス、
-  `location.bbox_in_image` に画像内座標を持つ
-- `summary` に要素種別ごとの件数、`metadata` にタイトル・作成者等が入る
+`location` is format-specific: docx=`order`, xlsx=`sheet`, pptx=`slide`,
+pdf=`page`+`bbox`. Tables detected inside images add `from_image` and
+`bbox_in_image`. `summary` holds per-type counts; `metadata` holds title,
+author, etc.
 
-完全なスキーマは [docs/output-schema.md](docs/output-schema.md)、
-運用ガイド (CLI リファレンス・OCR バックエンド・自己検証テスト・
-トラブルシューティング) は [docs/usage.md](docs/usage.md) を参照。
+Full schema: [docs/output-schema.md](docs/output-schema.md). CLI reference, OCR
+backends, self-test, and troubleshooting: [docs/usage.md](docs/usage.md).
 
-## 制限事項 (ユーザーに伝えるべきもの)
+## Limitations (surface these to the user)
 
-- PDF の表検出は罫線ベース (pdfplumber)。罫線のない表は検出できない場合がある
-- 画像内の表は行・列構造まで復元するが、結合セルは colspan 分を空文字で埋める
-- 旧形式 (`.doc` `.xls` `.ppt`) は未対応 — 新形式への変換を案内すること
-- OCR の精度は完璧ではない。判読の難しい画像ではノイズが混じることを明示すること
+- PDF table detection is ruling-based (pdfplumber); borderless tables may be missed
+- Image tables recover row/column structure, but merged cells are padded with
+  empty strings across the span
+- Legacy formats (`.doc` `.xls` `.ppt`) are unsupported — advise converting first
+- OCR is imperfect; note that hard-to-read images may yield noisy text

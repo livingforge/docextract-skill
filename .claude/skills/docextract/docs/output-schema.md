@@ -4,7 +4,11 @@
 
 ```jsonc
 {
+  "id": "report_docx_a1b2c3d4",   // 安定・衝突しない文書 ID (出力フォルダ名と一致)
   "source": "report.docx",        // 入力ファイル名
+  "source_abspath": "C:/work/資料/report.docx",  // ID の基準となる正規化済み絶対パス
+  "source_hash": "a1b2c3d4",      // source_abspath の sha256 先頭8桁 (ID 末尾と一致)
+  "content_hash": "9f86d0…",      // ファイル内容の sha256 (重複・改変の検知用)
   "file_type": "docx",            // docx | xlsx | pptx | pdf
   "metadata": {                   // 文書メタデータ (無い項目は null)
     "title": "...", "author": "...",
@@ -15,6 +19,11 @@
   "elements": [ /* 下記の要素が文書内の出現順 */ ]
 }
 ```
+
+`id` は入力ファイルの**正規化済み絶対パスのハッシュ**を含むため、別フォルダに
+ある同名ファイル (`2024/議事録.docx` と `2025/議事録.docx`) でも衝突しない。
+同じパスを再抽出すると同じ ID になる (冪等)。抽出結果は `output/<id>/result.json`
+に置かれ、`output/index.json` (抽出マニフェスト) に ID で索引される。
 
 ## text 要素
 

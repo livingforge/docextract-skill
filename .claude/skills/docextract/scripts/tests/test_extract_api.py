@@ -59,7 +59,9 @@ def test_output_dir_naming_and_json_written(tmp_path, make_docx):
     src = make_docx("report.docx", paragraphs=[("body", None)])
     out = tmp_path / "out"
     data = extract(src, output_dir=out)
-    doc_dir = out / "report_docx"
+    # 出力フォルダ名は衝突しない ID (パスハッシュ入り)。人間向けの芯は残る。
+    assert data["id"].startswith("report_docx_")
+    doc_dir = out / data["id"]
     assert doc_dir.is_dir()
     json_path = doc_dir / "result.json"
     assert json_path.exists()
@@ -71,25 +73,62 @@ def test_save_json_false_skips_file_but_returns_data(tmp_path, make_docx):
     src = make_docx("r.docx", paragraphs=[("body", None)])
     out = tmp_path / "out"
     data = extract(src, output_dir=out, save_json=False)
-    assert not (out / "r_docx" / "result.json").exists()
+    assert not (out / data["id"] / "result.json").exists()
     assert data["source"] == "r.docx"
 
 
 def test_returned_dict_shape(tmp_path, make_docx):
     src = make_docx("r.docx", paragraphs=[("body", None)])
     data = extract(src, output_dir=tmp_path / "out")
-    assert set(data) == {"source", "file_type", "metadata", "summary", "elements"}
+    assert set(data) == {
+        "id",
+        "source",
+        "source_abspath",
+        "source_hash",
+        "content_hash",
+        "file_type",
+        "metadata",
+        "summary",
+        "elements",
+    }
 
 
 def test_same_stem_different_ext_do_not_collide(tmp_path, make_docx, make_xlsx):
-    # 拡張子込みの名前で分けるため衝突しない
+    # 拡張子が違えば ID も異なるので衝突しない
     d = make_docx("data.docx", paragraphs=[("x", None)])
     x = make_xlsx("data.xlsx", sheets={"S": [["y"]]})
     out = tmp_path / "out"
-    extract(d, output_dir=out)
-    extract(x, output_dir=out)
-    assert (out / "data_docx" / "result.json").exists()
-    assert (out / "data_xlsx" / "result.json").exists()
+    dd = extract(d, output_dir=out)
+    xd = extract(x, output_dir=out)
+    assert dd["id"] != xd["id"]
+    assert (out / dd["id"] / "result.json").exists()
+    assert (out / xd["id"] / "result.json").exists()
+
+
+def test_same_name_different_folders_do_not_collide(tmp_path, make_docx):
+    # 別フォルダにある同名・同拡張子のファイルでもパスが違えば ID が衝突せず、
+    # 一方が他方を上書きしない (旧方式のデータロスを防ぐ回帰テスト)。
+    a = make_docx("2024/議事録.docx", paragraphs=[("春の会議", None)])
+    b = make_docx("2025/議事録.docx", paragraphs=[("夏の会議", None)])
+    out = tmp_path / "out"
+    da = extract(a, output_dir=out)
+    db = extract(b, output_dir=out)
+    assert da["id"] != db["id"]
+    ta = json.loads((out / da["id"] / "result.json").read_text(encoding="utf-8"))
+    tb = json.loads((out / db["id"] / "result.json").read_text(encoding="utf-8"))
+    assert "春の会議" in json.dumps(ta, ensure_ascii=False)
+    assert "夏の会議" in json.dumps(tb, ensure_ascii=False)
+
+
+def test_manifest_records_extracted_documents(tmp_path, make_docx):
+    out = tmp_path / "out"
+    a = make_docx("a.docx", paragraphs=[("x", None)])
+    da = extract(a, output_dir=out)
+    manifest = json.loads((out / "index.json").read_text(encoding="utf-8"))
+    assert da["id"] in manifest["documents"]
+    entry = manifest["documents"][da["id"]]
+    assert entry["content_hash"] == da["content_hash"]
+    assert entry["result_path"].endswith(f"{da['id']}/result.json")
 
 
 def test_supported_extensions_constant():

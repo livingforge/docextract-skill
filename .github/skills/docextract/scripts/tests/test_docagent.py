@@ -14,11 +14,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from docagent import Library, DocAgentError, doc_id_from_source
+from docagent import Library, DocAgentError
 from docagent import cli
 from docagent.store import PACKAGED_CATEGORIES, default_categories
 
 DEFAULT_CATS = default_categories()
+
+
+def _fixture_id(source: str) -> str:
+    """テスト用の読みやすい ID。実運用では docextract がパスハッシュ入り ID を
+    result.json に書き込むが、docagent はその値をそのまま使うだけなので、
+    ここでは可読性優先で ``<stem>_<ext>`` を採用する。"""
+    p = Path(source)
+    stem = p.stem or p.name
+    ext = p.suffix.lstrip(".").lower()
+    base = f"{stem}_{ext}" if ext else stem
+    return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in base)
 
 
 def make_result(source: str, texts, tables=None, ocr=None) -> dict:
@@ -35,7 +46,10 @@ def make_result(source: str, texts, tables=None, ocr=None) -> dict:
     if ocr:
         summary["image"] = len(ocr)
     return {
+        "id": _fixture_id(source),
         "source": source,
+        "source_abspath": f"/fixtures/{source}",
+        "content_hash": "0" * 64,
         "file_type": Path(source).suffix.lstrip(".").lower(),
         "metadata": {"title": None, "author": "tester"},
         "summary": summary,
@@ -61,24 +75,31 @@ class DocAgentTest(unittest.TestCase):
     def _lib(self) -> Library:
         return Library.load(self.store, self.cats)
 
-    # ── ID 生成 ──
-    def test_id_from_source(self):
-        self.assertEqual(doc_id_from_source("report.docx"), "report_docx")
-        self.assertEqual(doc_id_from_source("a/b/売上.xlsx"), "売上_xlsx")
-        self.assertEqual(doc_id_from_source("no ext file"), "no_ext_file")
-
     # ── 取り込み ──
-    def test_add_from_result(self):
+    def test_add_uses_id_from_result(self):
         rp = self._write_result("report.docx", texts=["月次売上の報告です。"])
         lib = self._lib()
         entry = lib.add_from_result(rp)
         lib.save()
+        # ID は result.json の id をそのまま採用する (再計算しない)
         self.assertEqual(entry["id"], "report_docx")
+        self.assertEqual(entry["source_abspath"], "/fixtures/report.docx")
         self.assertEqual(entry["file_type"], "docx")
         self.assertEqual(entry["status"], "registered")
         self.assertIsNone(entry["category"])
         self.assertIn("月次売上", entry["preview"])
         self.assertTrue(self.store.exists())
+
+    def test_add_rejects_result_without_id(self):
+        # id を欠く古い/壊れた result.json は再抽出を促して弾く
+        rp = self.root / "legacy_result.json"
+        payload = make_result("legacy.docx", texts=["x"])
+        del payload["id"]
+        rp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        lib = self._lib()
+        with self.assertRaises(DocAgentError) as cm:
+            lib.add_from_result(rp)
+        self.assertIn("id", str(cm.exception))
 
     def test_add_duplicate_requires_overwrite(self):
         rp = self._write_result("report.docx", texts=["x"])

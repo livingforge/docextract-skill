@@ -43,19 +43,6 @@ def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def doc_id_from_source(source: str) -> str:
-    """入力ファイル名から安定した ID を作る (docextract の出力フォルダ名と一致)。
-
-    例: ``report.docx`` -> ``report_docx`` / ``a/b/売上.xlsx`` -> ``売上_xlsx``
-    """
-    p = Path(source)
-    stem = p.stem or p.name
-    ext = p.suffix.lstrip(".").lower()
-    base = f"{stem}_{ext}" if ext else stem
-    # ファイルシステム・URL で扱いやすいよう空白等を潰す。
-    return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in base)
-
-
 class DocAgentError(Exception):
     """docagent 由来のユーザー向けエラー。"""
 
@@ -278,8 +265,16 @@ class Library:
         result_path = Path(result_path)
         result = _load_result_json(result_path)
 
+        # ID は docextract が result.json に書き込んだ値を正とする (再計算しない)。
+        # これで「出力フォルダ名とストア ID の不一致」が構造的に起きない。
+        doc_id = result.get("id")
+        if not doc_id:
+            raise DocAgentError(
+                f"result.json に id がありません: {result_path}。"
+                " id を含む新しい形式が必要です。docextract で再抽出してください:"
+                f" python -m docextract <元ファイル>"
+            )
         source = result.get("source", result_path.stem)
-        doc_id = doc_id_from_source(source)
         existing = self.find(doc_id)
         if existing and not overwrite:
             raise DocAgentError(
@@ -292,6 +287,8 @@ class Library:
         entry = {
             "id": doc_id,
             "source": source,
+            "source_abspath": result.get("source_abspath"),
+            "content_hash": result.get("content_hash"),
             "file_type": result.get("file_type"),
             "result_path": str(result_path).replace("\\", "/"),
             "metadata": result.get("metadata", {}),
@@ -314,6 +311,76 @@ class Library:
         else:
             self.documents.append(entry)
         return entry
+
+    def sync_from_manifest(self, manifest_path: str | Path) -> dict[str, Any]:
+        """抽出マニフェスト (output/index.json) の全文書を一括で登録/更新する。
+
+        doc-indexer が「フォルダを抽出 → まとめて索引化」を1コマンドで行うための
+        複合操作。既存の分析結果 (カテゴリ・要約) は :meth:`add_from_result` が
+        保持する。result.json が失われている項目はスキップして報告する。
+        返り値は ``{"added": [...], "updated": [...], "skipped": [...]}``。
+        """
+        manifest_path = Path(manifest_path)
+        if not manifest_path.exists():
+            raise DocAgentError(
+                f"抽出マニフェストが見つかりません: {manifest_path}。"
+                " 先に docextract で抽出してください: python -m docextract --dir <フォルダ> -r"
+            )
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError) as e:
+            raise DocAgentError(f"マニフェストを読み込めません: {manifest_path} ({e})") from e
+        docs = (data or {}).get("documents", {})
+        added, updated, skipped = [], [], []
+        for doc_id, entry in docs.items():
+            result_path = Path(entry.get("result_path", ""))
+            if not result_path.exists():
+                skipped.append(doc_id)
+                continue
+            existed = self.find(doc_id) is not None
+            self.add_from_result(result_path, overwrite=True)
+            (updated if existed else added).append(doc_id)
+        return {"added": added, "updated": updated, "skipped": skipped}
+
+    def search(
+        self, term: str, doc_id: str | None = None, max_hits: int = 50
+    ) -> list[dict[str, Any]]:
+        """登録済み文書の result.json 本文を横断検索し、出典付きヒットを返す。
+
+        corpus-qa が「資料のどこに何が書いてあるか」を出典 (doc_id + location) 付きで
+        答えるための接地 (grounding) 手段。各ヒットは
+        ``{"doc_id", "source", "location", "kind", "snippet"}``。座標情報を保った
+        まま、テキスト・表・画像 OCR の要素単位で一致を探す。
+        """
+        needle = (term or "").lower()
+        if not needle:
+            return []
+        hits: list[dict[str, Any]] = []
+        for doc in self.documents:
+            if doc_id and doc["id"] != doc_id:
+                continue
+            rp = Path(doc.get("result_path") or "")
+            if not rp.exists():
+                continue
+            try:
+                result = json.loads(rp.read_text(encoding="utf-8-sig"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            for el in result.get("elements", []):
+                text, kind = _element_search_text(el)
+                if text and needle in text.lower():
+                    hits.append(
+                        {
+                            "doc_id": doc["id"],
+                            "source": doc.get("source"),
+                            "location": el.get("location", {}),
+                            "kind": kind,
+                            "snippet": _snippet(text, needle),
+                        }
+                    )
+                    if len(hits) >= max_hits:
+                        return hits
+        return hits
 
     def set_category(self, doc_id: str, category: str, force: bool = False) -> dict[str, Any]:
         """カテゴリを設定する。既定ではタクソノミー内の値に正規化して許可。
@@ -536,6 +603,29 @@ def _searchable_text(doc: dict[str, Any]) -> str:
         json.dumps(doc.get("metadata", {}), ensure_ascii=False),
     ]
     return " ".join(parts).lower()
+
+
+def _element_search_text(el: dict[str, Any]) -> tuple[str, str]:
+    """検索対象の要素を (テキスト, 種別ラベル) に整形する。非対象は ("", "")。"""
+    t = el.get("type")
+    if t == "text" and el.get("content"):
+        return el["content"], "text"
+    if t == "table" and el.get("rows"):
+        return "\n".join(" | ".join(str(c) for c in row) for row in el["rows"]), "table"
+    if t == "image" and el.get("ocr_text"):
+        return el["ocr_text"], "image_ocr"
+    return "", ""
+
+
+def _snippet(text: str, needle_lower: str, width: int = 60) -> str:
+    """一致位置の前後を切り出した抜粋 (前後は … で省略)。"""
+    idx = text.lower().find(needle_lower)
+    if idx < 0:
+        return text[:width]
+    start = max(0, idx - width // 2)
+    end = min(len(text), idx + len(needle_lower) + width // 2)
+    s = text[start:end].replace("\n", " ")
+    return ("…" if start > 0 else "") + s + ("…" if end < len(text) else "")
 
 
 def _render_text(result: dict[str, Any]) -> str:

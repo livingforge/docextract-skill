@@ -32,6 +32,7 @@ from pathlib import Path
 
 from docextract import paths as _paths
 
+from .facts import FactStore
 from .store import (
     DEFAULT_CATEGORIES,
     DEFAULT_STORE,
@@ -42,6 +43,10 @@ from .store import (
 
 def _load(args: argparse.Namespace) -> Library:
     return Library.load(args.store, args.categories)
+
+
+def _load_facts(args: argparse.Namespace) -> FactStore:
+    return FactStore.load(args.facts, args.item_types_file)
 
 
 def _emit(obj, as_json: bool, human) -> None:
@@ -65,11 +70,23 @@ def cmd_init(args):
     lib = _load(args)
     lib.save()
     lib.save_categories()
+    # ファクトストアと種別定義も同時に用意する (spec-extractor 用)。
+    fs = _load_facts(args)
+    fs.save()
+    fs.save_item_types()
     _emit(
-        {"store": str(lib.path), "categories": lib.categories, "documents": len(lib.documents)},
+        {
+            "store": str(lib.path),
+            "facts": str(fs.path),
+            "categories": lib.categories,
+            "item_types": fs.item_types,
+            "documents": len(lib.documents),
+        },
         args.json,
         lambda o: print(
-            f"初期化しました。\n  ストア: {o['store']}\n  カテゴリ: {', '.join(o['categories'])}\n"
+            f"初期化しました。\n  ストア: {o['store']}\n  ファクト: {o['facts']}\n"
+            f"  カテゴリ: {', '.join(o['categories'])}\n"
+            f"  ファクト種別: {', '.join(o['item_types'])}\n"
             f"  登録済み文書: {o['documents']} 件"
         ),
     )
@@ -255,6 +272,135 @@ def cmd_categories(args):
     )
 
 
+# ── 現状把握 (doc-indexer): 抽出済みを一括登録 ───────────────────
+def cmd_sync(args):
+    lib = _load(args)
+    manifest = args.manifest or str(_paths.manifest_path())
+    result = lib.sync_from_manifest(manifest)
+    lib.save()
+
+    def human(o):
+        print(
+            f"索引を更新しました: 新規 {len(o['added'])} 件 / 更新 {len(o['updated'])} 件"
+            f" / スキップ {len(o['skipped'])} 件"
+        )
+        if o["skipped"]:
+            print(f"  スキップ (result.json 不明): {', '.join(o['skipped'])}")
+
+    _emit(result, args.json, human)
+
+
+# ── 横断検索 (corpus-qa): 出典付きグラウンデッド検索 ─────────────
+def cmd_search(args):
+    lib = _load(args)
+    hits = lib.search(args.term, doc_id=args.doc, max_hits=args.max_hits)
+
+    def human(o):
+        print(f"「{args.term}」に一致 {len(o)} 件:")
+        for h in o:
+            loc = json.dumps(h["location"], ensure_ascii=False)
+            print(f"  {h['doc_id']} [{h['kind']}] {loc}")
+            print(f"    {h['snippet']}")
+
+    _emit(hits, args.json, human)
+
+
+# ── 仕様の洗い出し (spec-extractor): ファクト操作 ────────────────
+def _fact_line(it: dict) -> str:
+    conf = f" ({it['confidence']})" if it.get("confidence") else ""
+    loc = json.dumps(it.get("location", {}), ensure_ascii=False)
+    return f"{it['id']} [{it.get('type','?')}]{conf} {it.get('doc_id','?')} {loc}\n    {it.get('statement','')}"
+
+
+def cmd_fact_add(args):
+    fs = _load_facts(args)
+    location = None
+    if args.location:
+        try:
+            location = json.loads(args.location)
+        except json.JSONDecodeError as e:
+            raise DocAgentError(
+                f"--location は JSON で指定してください (例: '{{\"page\": 3}}'): {e}"
+            ) from e
+    item = fs.add(
+        doc_id=args.doc,
+        type=args.type,
+        statement=args.statement,
+        evidence=args.evidence,
+        location=location,
+        keywords=_split_keywords(args.keywords),
+        confidence=args.confidence,
+        force=args.force,
+    )
+    fs.save()
+    _emit(item, args.json, lambda o: print(f"追加しました: {o['id']} [{o['type']}] <- {o['doc_id']}"))
+
+
+def cmd_facts(args):
+    fs = _load_facts(args)
+    items = fs.query(doc_id=args.doc, type=args.type, text=args.text)
+    _emit(
+        items,
+        args.json,
+        lambda o: (
+            print(f"ファクト {len(o)} 件:") or [print("  " + _fact_line(it)) for it in o]
+            or (print("  (なし)") if not o else None)
+        ),
+    )
+
+
+def cmd_fact_remove(args):
+    fs = _load_facts(args)
+    item = fs.remove(args.id)
+    fs.save()
+    _emit(item, args.json, lambda o: print(f"削除しました: {o['id']}"))
+
+
+def cmd_facts_stats(args):
+    fs = _load_facts(args)
+    s = fs.stats()
+
+    def human(o):
+        print(f"ファクト合計: {o['total']} 件")
+        print("種別別:")
+        for k, v in sorted(o["by_type"].items(), key=lambda x: -x[1]):
+            print(f"  {k:16} {v}")
+        print("文書別:")
+        for k, v in sorted(o["by_doc"].items(), key=lambda x: -x[1]):
+            print(f"  {k:24} {v}")
+
+    _emit(s, args.json, human)
+
+
+def cmd_facts_export(args):
+    fs = _load_facts(args)
+    data = fs.export()
+    if args.output:
+        Path(args.output).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        print(f"書き出しました: {args.output} ({len(data['items'])} 件)")
+    else:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def cmd_item_types(args):
+    fs = _load_facts(args)
+    if args.action == "add" and args.name:
+        fs.add_item_type(args.name)
+        fs.save_item_types()
+        fs.save()
+    elif args.action == "remove" and args.name:
+        fs.remove_item_type(args.name)
+        fs.save_item_types()
+        fs.save()
+    _emit(
+        fs.item_types,
+        args.json,
+        lambda o: print("ファクト種別:\n" + "\n".join(f"  - {c}" for c in o)),
+    )
+
+
 # ── 補助 ─────────────────────────────────────────────────────
 # キーワードの区切り揺れ (半角/全角カンマ・読点・セミコロン・改行) を吸収する。
 _KEYWORD_DELIMS = re.compile(r"[,、，;；\n\r\t]+")
@@ -325,6 +471,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     common.add_argument(
         "--json", action="store_true", default=argparse.SUPPRESS, help="機械可読な JSON で出力"
+    )
+    common.add_argument(
+        "--facts", default=argparse.SUPPRESS, help="ファクト集約 JSON の保存先 (既定 store/facts.json)"
+    )
+    common.add_argument(
+        "--item-types-file", default=argparse.SUPPRESS, help="ファクト種別の定義ファイル"
     )
 
     p = argparse.ArgumentParser(
@@ -400,6 +552,51 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("name", nargs="?")
     sp.set_defaults(func=cmd_categories)
 
+    # ── 現状把握 (doc-indexer) ──
+    sp = add("sync", "抽出マニフェストの全文書を一括で索引に登録/更新")
+    sp.add_argument("--manifest", help="output/index.json のパス (既定は基点配下)")
+    sp.set_defaults(func=cmd_sync)
+
+    # ── 横断検索 (corpus-qa) ──
+    sp = add("search", "登録済み文書の本文を横断検索し出典 (doc_id+location) 付きで返す")
+    sp.add_argument("term", help="検索語 (部分一致)")
+    sp.add_argument("--doc", help="特定の文書 ID に絞る")
+    sp.add_argument("--max-hits", type=int, default=50, help="最大ヒット数 (既定 50)")
+    sp.set_defaults(func=cmd_search)
+
+    # ── 仕様の洗い出し (spec-extractor): ファクト ──
+    sp = add("fact-add", "抽出した仕様・要件ファクトを1件追加 (出典必須)")
+    sp.add_argument("--doc", required=True, help="抽出元の文書 ID")
+    sp.add_argument("--type", required=True, help="ファクト種別 (item-types のいずれか)")
+    sp.add_argument("--statement", required=True, help="抽出した事実 (機械可読な1文)")
+    sp.add_argument("--evidence", help="根拠となる原文抜粋")
+    sp.add_argument("--location", help='要素の location を JSON で (例: \'{"page": 3}\')')
+    sp.add_argument("--keywords", help="カンマ区切りのキーワード")
+    sp.add_argument("--confidence", choices=["high", "medium", "low"], help="確信度")
+    sp.add_argument("--force", action="store_true", help="種別定義外でも許可")
+    sp.set_defaults(func=cmd_fact_add)
+
+    sp = add("facts", "ファクトを一覧/絞り込み")
+    sp.add_argument("--doc", help="文書 ID で絞る")
+    sp.add_argument("--type", help="種別で絞る")
+    sp.add_argument("--text", help="本文・根拠・キーワードへの部分一致")
+    sp.set_defaults(func=cmd_facts)
+
+    sp = add("fact-remove", "ファクトを削除")
+    sp.add_argument("id")
+    sp.set_defaults(func=cmd_fact_remove)
+
+    add("facts-stats", "ファクトの種別別・文書別の集計").set_defaults(func=cmd_facts_stats)
+
+    sp = add("facts-export", "ファクト集約 JSON 全体を出力")
+    sp.add_argument("-o", "--output", help="書き出し先ファイル (省略時は標準出力)")
+    sp.set_defaults(func=cmd_facts_export)
+
+    sp = add("item-types", "ファクト種別の表示・追加・削除")
+    sp.add_argument("action", nargs="?", default="list", choices=["list", "add", "remove"])
+    sp.add_argument("name", nargs="?")
+    sp.set_defaults(func=cmd_item_types)
+
     return p
 
 
@@ -417,6 +614,8 @@ def main(argv: list[str] | None = None) -> int:
     # 反映させる (import 時に固定しない)。
     args.store = getattr(args, "store", str(_paths.store_path()))
     args.categories = getattr(args, "categories", str(_paths.categories_path()))
+    args.facts = getattr(args, "facts", str(_paths.facts_path()))
+    args.item_types_file = getattr(args, "item_types_file", str(_paths.item_types_path()))
     args.json = getattr(args, "json", False)
     try:
         args.func(args)
