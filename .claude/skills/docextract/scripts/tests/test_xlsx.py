@@ -136,11 +136,49 @@ def test_fully_empty_sheet_yields_no_table(tmp_path, make_xlsx):
 
 
 def test_multiple_sheets_each_become_table(tmp_path, make_xlsx):
-    src = make_xlsx(sheets={"A": [["1"]], "B": [["2"]]})
+    src = make_xlsx(sheets={"A": [["1", "x"]], "B": [["2", "y"]]})
     data = _extract(src, tmp_path / "out")
     tables = _tables(data)
     sheets = {t["location"]["sheet"] for t in tables}
     assert sheets == {"A", "B"}
+
+
+def test_isolated_single_cell_becomes_text(tmp_path, make_xlsx):
+    # 孤立セル (1x1 の領域) は表ではなくテキスト要素として出る
+    src = make_xlsx(sheets={"S": [["基本設計書"]]})
+    data = _extract(src, tmp_path / "out")
+    assert _tables(data) == []
+    texts = [e for e in data["elements"] if e["type"] == "text"]
+    assert len(texts) == 1
+    assert texts[0]["content"] == "基本設計書"
+    assert texts[0]["location"] == {"sheet": "S", "cell": "A1"}
+
+
+def test_isolated_cells_and_table_mix(tmp_path, make_xlsx):
+    # 表紙風レイアウト: 離れたタイトルセル 2 つ + 通常の表が共存する
+    src = make_xlsx(
+        sheets={
+            "S": [
+                ["タイトル"],
+                [None],
+                [None],
+                [None, None, "注記"],
+                [None],
+                [None],
+                ["a", "b"],
+                ["c", "d"],
+            ]
+        }
+    )
+    data = _extract(src, tmp_path / "out")
+    texts = [e for e in data["elements"] if e["type"] == "text"]
+    assert {(t["content"], t["location"]["cell"]) for t in texts} == {
+        ("タイトル", "A1"),
+        ("注記", "C4"),
+    }
+    tables = _tables(data)
+    assert len(tables) == 1
+    assert tables[0]["rows"] == [["a", "b"], ["c", "d"]]
 
 
 def test_image_extracted_with_anchor(tmp_path, make_xlsx, png_file):

@@ -11,6 +11,8 @@ Excel の使用範囲 (used range) は書式だけのセルや削除済みデー
   (表中のスペーサー行で分断されないため)
 - 2 行/列以上の空白で離れたセル群は別の表として分割する
 - 各表の内部でも完全な空行・空列は除去する
+- 孤立した単一セル (1x1 の領域) は表ではなくテキスト要素として出す
+  (表紙のタイトルや注記が「1x1 の表」で大量に出るのを防ぐ)
 
 結合セルは openpyxl では左上セルにのみ値が入るため、幅 1 の縦結合
 (表の分類列で「同上」を表す慣習) に限り値を結合範囲の全行へ展開する。
@@ -26,7 +28,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from ..models import ExtractionResult, ImageElement, TableElement
+from ..models import ExtractionResult, ImageElement, TableElement, TextElement
 from .base import ImageSaver
 
 # 同じ表とみなす空白ギャップの許容幅 (行/列数)
@@ -51,6 +53,18 @@ def extract_xlsx(path: Path, saver: ImageSaver) -> ExtractionResult:
         grid = _sheet_to_grid(ws)
         for top, left, bottom, right in _find_table_regions(grid):
             rows = _region_to_rows(grid, top, left, bottom, right)
+            if len(rows) == 1 and len(rows[0]) == 1:
+                # 孤立セルはタイトル・ラベル・注記であって表ではない
+                result.elements.append(
+                    TextElement(
+                        content=rows[0][0],
+                        location={
+                            "sheet": ws.title,
+                            "cell": f"{_col_letter(left + 1)}{top + 1}",
+                        },
+                    )
+                )
+                continue
             cell_range = (
                 f"{_col_letter(left + 1)}{top + 1}:"
                 f"{_col_letter(right + 1)}{bottom + 1}"

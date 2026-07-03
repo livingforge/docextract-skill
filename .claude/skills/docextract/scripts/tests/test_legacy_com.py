@@ -143,7 +143,10 @@ def test_successful_conversion_delegates_and_relabels(monkeypatch, tmp_path):
     assert result.source == "legacy.xls"
     assert "converted_via" in result.metadata
     # 委譲先 (extract_xlsx) が実際に中身を読んでいる
+    # (孤立した単一セルはテキスト要素として出る)
     texts = [
+        getattr(el, "content", None) for el in result.elements
+    ] + [
         cell
         for el in result.elements
         if getattr(el, "rows", None)

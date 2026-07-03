@@ -181,7 +181,10 @@ def test_extract_irm_decrypts_and_extracts_with_office(tmp_path, monkeypatch):
 
     assert data["file_type"] == "xlsx"
     assert "COM decrypt" in data["metadata"]["converted_via"]
+    # 孤立した単一セルはテキスト要素として出る
     cells = [
+        el.get("content") for el in data["elements"] if el["type"] == "text"
+    ] + [
         c
         for el in data["elements"]
         if el["type"] == "table"
