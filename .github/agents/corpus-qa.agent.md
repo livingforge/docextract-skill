@@ -39,12 +39,15 @@ DOCEXTRACT_AUTOINSTALL=1 python .github/skills/docextract/scripts/run_docextract
 `DOCEXTRACT_NO_UV_AUTOINSTALL=1` は「絶対に自動実行しない」を意味し最優先で尊重される。
 
 ## 手順
-1. **横断検索** — 問いをキーワードに分解し、言い換えも含めて検索する:
+1. **横断検索** — 問いをキーワードに分解して検索する。**空白区切りの複数キーワードは
+   AND**（全語を含む要素だけヒット）なので、まず「対象 + 観点」の 2 語で絞るのが基本:
    ```
-   python .github/skills/docextract/scripts/run_docagent.py search "<キーワード>" --json
+   python .github/skills/docextract/scripts/run_docagent.py search "帳票 出力条件" --json
    ```
-   各ヒットには `doc_id`・`location`（page/slide/sheet/order）・一致箇所の抜粋が付く。
-   ヒットが 0 なら別の語・同義語で 1〜2 回試す。
+   各ヒットには `doc_id`・`location`（page/slide/sheet/order）・関連度 `score`・一致箇所の
+   抜粋が付き、**関連度順**に並ぶ。全角/半角・大文字小文字・改行や空白の揺れは検索側で
+   吸収されるので言い換えに含めなくてよい。ヒットが 0 なら語を減らす（AND を緩める）か、
+   別の語・同義語（例: ユーザー↔ユーザ、帳票↔レポート）で 1〜2 回試す。
 
 2. **裏取り** — 必要に応じて該当文書を深掘りする:
    ```

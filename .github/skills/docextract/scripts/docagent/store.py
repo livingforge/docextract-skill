@@ -340,12 +340,19 @@ class Library:
 
         corpus-qa が「資料のどこに何が書いてあるか」を出典 (doc_id + location) 付きで
         答えるための接地 (grounding) 手段。各ヒットは
-        ``{"doc_id", "source", "location", "kind", "snippet"}``。座標情報を保った
-        まま、テキスト・表・画像 OCR の要素単位で一致を探す。
+        ``{"doc_id", "source", "location", "kind", "score", "snippet"}``。座標情報を
+        保ったまま、テキスト・表・画像 OCR の要素単位で一致を探す。
+
+        照合はクエリ・本文の双方を :func:`_fold_text` (NFKC + 小文字化 + 空白除去)
+        で畳んでから行うため、全角/半角・大文字小文字・要素内の改行や空白をまたぐ
+        語も一致する。空白区切りの複数キーワードは **AND 条件** (すべて含む要素だけ
+        ヒット)。結果は先着順ではなく関連度スコア順 (一致回数 + フレーズ一致ボーナス、
+        OCR は減点) の上位 ``max_hits`` 件を返す。
         """
-        needle = (term or "").lower()
-        if not needle:
+        keywords = [f for w in (term or "").split() if (f := _fold_text(w)[0])]
+        if not keywords:
             return []
+        phrase = "".join(keywords)
         hits: list[dict[str, Any]] = []
         for doc in self.documents:
             if doc_id and doc["id"] != doc_id:
@@ -359,19 +366,36 @@ class Library:
                 continue
             for el in result.get("elements", []):
                 text, kind = _element_search_text(el)
-                if text and needle in text.lower():
-                    hits.append(
-                        {
-                            "doc_id": doc["id"],
-                            "source": doc.get("source"),
-                            "location": el.get("location", {}),
-                            "kind": kind,
-                            "snippet": _snippet(text, needle),
-                        }
-                    )
-                    if len(hits) >= max_hits:
-                        return hits
-        return hits
+                if not text:
+                    continue
+                folded, idx_map = _fold_text(text)
+                if not all(k in folded for k in keywords):
+                    continue
+                # 一致回数を数える (1 語あたり上限 3: 巨大な表 1 枚が上位を独占しないように)。
+                score = float(sum(min(folded.count(k), 3) for k in keywords))
+                # snippet の中心は先頭キーワードの初出位置。フレーズ一致ならそちらを優先。
+                anchor, anchor_len = folded.find(keywords[0]), len(keywords[0])
+                if len(keywords) > 1:
+                    p = folded.find(phrase)
+                    if p >= 0:
+                        score += 3.0
+                        anchor, anchor_len = p, len(phrase)
+                score *= _KIND_WEIGHTS.get(kind, 1.0)
+                start = idx_map[anchor]
+                end = idx_map[anchor + anchor_len - 1] + 1
+                hits.append(
+                    {
+                        "doc_id": doc["id"],
+                        "source": doc.get("source"),
+                        "location": el.get("location", {}),
+                        "kind": kind,
+                        "score": round(score, 2),
+                        "snippet": _snippet(text, start, end),
+                    }
+                )
+        # スコア降順 (同点は文書の登録順・要素の出現順を保つ安定ソート)。
+        hits.sort(key=lambda h: -h["score"])
+        return hits[:max_hits]
 
     def set_doctype(self, doc_id: str, doctype: str, force: bool = False) -> dict[str, Any]:
         """文書種別を設定する。既定では定義内の値に正規化して許可。
@@ -567,15 +591,37 @@ def _element_search_text(el: dict[str, Any]) -> tuple[str, str]:
     return "", ""
 
 
-def _snippet(text: str, needle_lower: str, width: int = 60) -> str:
-    """一致位置の前後を切り出した抜粋 (前後は … で省略)。"""
-    idx = text.lower().find(needle_lower)
-    if idx < 0:
-        return text[:width]
-    start = max(0, idx - width // 2)
-    end = min(len(text), idx + len(needle_lower) + width // 2)
-    s = text[start:end].replace("\n", " ")
-    return ("…" if start > 0 else "") + s + ("…" if end < len(text) else "")
+# 要素種別ごとのスコア係数。画像 OCR は誤認識由来のノイズを含みやすいので、
+# 本文・表と同点のときに上に来ないよう少しだけ割り引く。
+_KIND_WEIGHTS = {"text": 1.0, "table": 1.0, "image_ocr": 0.7}
+
+
+def _fold_text(text: str) -> tuple[str, list[int]]:
+    """検索照合用にテキストを畳む: NFKC + 小文字化 + 空白 (改行含む) 除去。
+
+    全角/半角 (ＣＳＶ↔CSV)・大文字小文字・抽出時に紛れ込む改行や空白の揺れを
+    吸収するための正規化。畳んだ文字列と「畳んだ後の各文字 → 元テキストの
+    インデックス」の対応表を返し、一致位置から元テキストの snippet を切り出せる
+    ようにする。
+    """
+    chars: list[str] = []
+    idx_map: list[int] = []
+    for i, ch in enumerate(text):
+        for c in unicodedata.normalize("NFKC", ch).lower():
+            if c.isspace():
+                continue
+            chars.append(c)
+            idx_map.append(i)
+    return "".join(chars), idx_map
+
+
+def _snippet(text: str, start: int, end: int, width: int = 160) -> str:
+    """一致範囲 [start, end) の前後を切り出した抜粋 (前後は … で省略)。"""
+    pad = max(0, (width - (end - start)) // 2)
+    s0 = max(0, start - pad)
+    e0 = min(len(text), end + pad)
+    s = " ".join(text[s0:e0].split())
+    return ("…" if s0 > 0 else "") + s + ("…" if e0 < len(text) else "")
 
 
 def _render_text(result: dict[str, Any]) -> str:

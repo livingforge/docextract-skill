@@ -311,10 +311,10 @@ def cmd_search(args):
     hits = lib.search(args.term, doc_id=args.doc, max_hits=args.max_hits)
 
     def human(o):
-        print(f"「{args.term}」に一致 {len(o)} 件:")
+        print(f"「{args.term}」に一致 {len(o)} 件 (関連度順):")
         for h in o:
             loc = json.dumps(h["location"], ensure_ascii=False)
-            print(f"  {h['doc_id']} [{h['kind']}] {loc}")
+            print(f"  {h['doc_id']} [{h['kind']}] score={h['score']} {loc}")
             print(f"    {h['snippet']}")
 
     _emit(hits, args.json, human)
@@ -610,9 +610,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ── 横断検索 (corpus-qa) ──
     sp = add("search", "登録済み文書の本文を横断検索し出典 (doc_id+location) 付きで返す")
-    sp.add_argument("term", help="検索語 (部分一致)")
+    sp.add_argument(
+        "term",
+        help="検索語。空白区切りで複数指定すると AND (全語を含む要素のみ)。"
+        " 全角/半角・大文字小文字・改行や空白の揺れは吸収される",
+    )
     sp.add_argument("--doc", help="特定の文書 ID に絞る")
-    sp.add_argument("--max-hits", type=int, default=50, help="最大ヒット数 (既定 50)")
+    sp.add_argument(
+        "--max-hits", type=int, default=50, help="返す最大ヒット数 (関連度順の上位。既定 50)"
+    )
     sp.set_defaults(func=cmd_search)
 
     # ── 仕様の洗い出し (spec-extractor): ファクト ──

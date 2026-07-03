@@ -237,6 +237,60 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(lib.search(""), [])
         self.assertEqual(len(lib.search("キーワード", max_hits=3)), 3)
 
+    def test_search_normalizes_width_and_whitespace(self):
+        self._register(
+            "a_docx",
+            "a.docx",
+            [{"type": "text", "content": "ＣＳＶ出力\nの条件を定める", "location": {"order": 1}}],
+        )
+        lib = self._lib()
+        self.assertEqual(len(lib.search("csv")), 1)  # 全角英字 ↔ 半角
+        self.assertEqual(len(lib.search("出力の条件")), 1)  # 要素内の改行をまたぐ一致
+        self.assertIn("ＣＳＶ出力", lib.search("csv")[0]["snippet"])  # snippet は原文のまま
+
+    def test_search_multi_keyword_is_and(self):
+        self._register(
+            "a_docx",
+            "a.docx",
+            [
+                {"type": "text", "content": "ユーザの権限は3種類ある", "location": {"order": 1}},
+                {"type": "text", "content": "ユーザ一覧画面の仕様", "location": {"order": 2}},
+            ],
+        )
+        hits = self._lib().search("ユーザ 権限")
+        self.assertEqual(len(hits), 1)  # 両語を含む要素だけ
+        self.assertEqual(hits[0]["location"], {"order": 1})
+
+    def test_search_ranks_by_relevance_not_registration_order(self):
+        # 先に登録した文書の弱いヒットが、後の文書の強いヒットを押し出さないこと
+        # (旧実装は登録順の先着 max_hits 件で打ち切っていた)。
+        self._register(
+            "a_docx",
+            "a.docx",
+            [{"type": "text", "content": f"承認 その{i}", "location": {"order": i}} for i in range(5)],
+        )
+        self._register(
+            "b_pdf",
+            "b.pdf",
+            [{"type": "text", "content": "承認フロー: 承認は2段階。最終承認は部長。", "location": {"page": 1}}],
+        )
+        hits = self._lib().search("承認", max_hits=3)
+        self.assertEqual(hits[0]["doc_id"], "b_pdf")  # 一致回数の多い要素が先頭
+        self.assertEqual(len(hits), 3)
+
+    def test_search_phrase_match_ranks_first(self):
+        self._register(
+            "a_docx",
+            "a.docx",
+            [
+                {"type": "text", "content": "権限は管理者が各ユーザに付与する", "location": {"order": 1}},
+                {"type": "text", "content": "ユーザ権限の一覧を示す", "location": {"order": 2}},
+            ],
+        )
+        hits = self._lib().search("ユーザ 権限")
+        self.assertEqual(len(hits), 2)  # AND はどちらも満たす
+        self.assertEqual(hits[0]["location"], {"order": 2})  # 連続一致 (フレーズ) が上位
+
 
 if __name__ == "__main__":
     unittest.main()
