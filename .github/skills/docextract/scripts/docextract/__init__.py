@@ -16,8 +16,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from . import identity, manifest, obs, paths
-from .extractors import extract_docx, extract_pdf, extract_pptx, extract_xlsx
+from . import identity, manifest, obs, paths, sensitivity
+from .extractors import (
+    extract_decrypting,
+    extract_doc,
+    extract_docx,
+    extract_pdf,
+    extract_ppt,
+    extract_pptx,
+    extract_xls,
+    extract_xlsx,
+)
 from .extractors.base import ImageSaver
 from .image_tables import detect_tables
 from .models import ExtractionResult, ImageElement, TableElement
@@ -31,6 +40,13 @@ _EXTRACTORS = {
     ".xlsm": extract_xlsx,
     ".pptx": extract_pptx,
     ".pdf": extract_pdf,
+    # 旧 Office バイナリ形式 (.xls/.doc/.ppt) は Windows 上でインストール済みの
+    # Microsoft Office を COM 自動化して OOXML へ変換してから抽出する。Office /
+    # pywin32 が無い環境では「Office が必要」である旨を含む明確なエラーで停止する
+    # (未対応形式として黙って弾くのではなく、要件を伝えて fail-closed)。
+    ".xls": extract_xls,
+    ".doc": extract_doc,
+    ".ppt": extract_ppt,
 }
 
 SUPPORTED_EXTENSIONS = tuple(_EXTRACTORS)
@@ -130,11 +146,38 @@ def extract(
         raise FileNotFoundError(f"ファイルが見つかりません: {input_path}")
 
     ext = input_path.suffix.lower()
-    extractor = _EXTRACTORS.get(ext)
-    if extractor is None:
-        supported = ", ".join(SUPPORTED_EXTENSIONS)
-        log.error("extract.error", reason="unsupported_format", ext=ext, source=str(input_path))
-        raise ValueError(f"未対応の形式です: {ext} (対応形式: {supported})")
+
+    # 暗号化 / IRM(RMS) 保護の検知。純 Python では復号できないため、通常の抽出器へ
+    # 素通しすると「zip でない」等の不明瞭なエラーになる。ここで検知して経路を分ける:
+    #   - IRM/RMS (秘密度ラベル暗号化): 操作者はアクセス権を持つ前提。その権限で動く
+    #     Office に COM で開かせて復号し、平文 OOXML へ変換してから抽出する。
+    #   - パスワード暗号化: アクセス権とは別に鍵(パスワード)が要り、COM で開くと入力
+    #     待ちでハングしうる。復号鍵を扱わない方針のため専用エラーで fail-closed。
+    protection = sensitivity.detect_protection(input_path)
+    if protection is not None and protection["kind"] != "irm":
+        log.error(
+            "extract.error",
+            reason="encrypted_document",
+            kind=protection["kind"],
+            source=str(input_path),
+        )
+        raise sensitivity.ProtectedDocumentError(
+            f"暗号化された文書のため抽出できません ({protection['detail']}): "
+            f"{input_path}. この文書はパスワード等で暗号化されています。docextract は"
+            f"復号鍵を扱いません。復号済みのコピーを渡してください。"
+        )
+
+    if protection is not None:  # kind == "irm": アクセス権前提で Office 復号して抽出
+        log.event(
+            "extract.decrypt", source=str(input_path), kind=protection["kind"]
+        )
+        extractor = lambda p, s: extract_decrypting(p, s, protection)  # noqa: E731
+    else:
+        extractor = _EXTRACTORS.get(ext)
+        if extractor is None:
+            supported = ", ".join(SUPPORTED_EXTENSIONS)
+            log.error("extract.error", reason="unsupported_format", ext=ext, source=str(input_path))
+            raise ValueError(f"未対応の形式です: {ext} (対応形式: {supported})")
 
     # 出力フォルダ名は identity で作る衝突しない ID。別フォルダの同名ファイルでも
     # パスが違えば ID が異なるため上書き事故が起きない。
@@ -170,6 +213,16 @@ def extract(
     result.source_hash = identity.source_hash(source_key)
     result.content_hash = identity.content_hash(input_path)
 
+    # 秘密度ラベル (MSIP) を成果物へ伝播する。旧形式は legacy_com が変換後 OOXML
+    # から既に metadata["sensitivity"] を設定済みなので、未設定のとき (=OOXML 直接)
+    # だけ入力から読む。機密文書が無印のまま下流コーパスへ流入しないようにする。
+    if "sensitivity" not in result.metadata:
+        label = sensitivity.read_label(input_path)
+        if label:
+            result.metadata["sensitivity"] = label
+    if result.metadata.get("sensitivity"):
+        log.event("extract.sensitivity", doc_id=doc_id, label=result.metadata["sensitivity"].get("name"))
+
     data = result.to_dict()
 
     if save_json:
@@ -178,20 +231,22 @@ def extract(
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         if record_manifest:
-            manifest.record(
-                {
-                    "id": doc_id,
-                    "source": str(input_path),
-                    "source_abspath": source_key,
-                    "source_hash": result.source_hash,
-                    "content_hash": result.content_hash,
-                    "file_type": result.file_type,
-                    "result_path": (doc_out_dir / "result.json").as_posix(),
-                    "size": input_path.stat().st_size,
-                    "run_id": run_id,
-                },
-                path=Path(output_dir) / "index.json",
-            )
+            record = {
+                "id": doc_id,
+                "source": str(input_path),
+                "source_abspath": source_key,
+                "source_hash": result.source_hash,
+                "content_hash": result.content_hash,
+                "file_type": result.file_type,
+                "result_path": (doc_out_dir / "result.json").as_posix(),
+                "size": input_path.stat().st_size,
+                "run_id": run_id,
+            }
+            # 秘密度ラベルがあれば索引にも載せ、コーパス側で機密文書を機械判定できる
+            # ようにする (無印のまま横断検索へ流入させない)。
+            if result.metadata.get("sensitivity"):
+                record["sensitivity"] = result.metadata["sensitivity"]
+            manifest.record(record, path=Path(output_dir) / "index.json")
     # 1 文書分の完了を監査ログに残す。要素数と劣化件数を載せ、観測ログだけで
     # 「何を何件抽出し、何件取りこぼしたか」を再構成できるようにする。
     log.event(

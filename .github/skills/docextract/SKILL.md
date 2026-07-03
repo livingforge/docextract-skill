@@ -50,7 +50,9 @@ python .github/skills/docextract/scripts/run_docextract.py --dir <folder> -o <ou
 python .github/skills/docextract/scripts/run_docextract.py --dir <folder> -r -o <output-dir>  # recurse
 ```
 
-- Formats: `.docx` `.xlsx` `.xlsm` `.pptx` `.pdf` (wildcards ok)
+- Formats: `.docx` `.xlsx` `.xlsm` `.pptx` `.pdf` (wildcards ok). Legacy
+  `.xls` `.doc` `.ppt` also work **on Windows with Microsoft Office installed**
+  (converted via Office COM automation; see Limitations)
 - Each input yields `<output-dir>/<id>/` containing `result.json` and `images/`, where
   `<id>` embeds a hash of the file's absolute path so same-named files in different
   folders never collide. A manifest `<output-dir>/index.json` indexes all extractions by id.
@@ -93,5 +95,9 @@ backends, self-test, and troubleshooting: [docs/usage.md](docs/usage.md).
 - PDF table detection is ruling-based (pdfplumber); borderless tables may be missed
 - Image tables recover row/column structure, but merged cells are padded with
   empty strings across the span
-- Legacy formats (`.doc` `.xls` `.ppt`) are unsupported — advise converting first
+- Legacy formats (`.doc` `.xls` `.ppt`) are handled **only on Windows with the
+  matching Microsoft Office app installed** — they are converted to OOXML via
+  Office COM automation (needs `pywin32`). Without Office/pywin32 they fail
+  closed with a clear "Microsoft Office is required" error naming the app; in
+  that case convert to `.docx`/`.xlsx`/`.pptx` first
 - OCR is imperfect; note that hard-to-read images may yield noisy text

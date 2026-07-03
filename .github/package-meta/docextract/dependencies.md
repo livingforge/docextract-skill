@@ -17,6 +17,24 @@
 | rapid-table | 表構造復元 (SLANet-plus) | Apache-2.0 |
 | Pillow | 画像処理 | MIT-CMU |
 | winocr (任意) | Windows 標準 OCR のラッパー | MIT (エンジンは OS 機能) |
+| pywin32 (任意) | 旧形式 (.xls/.doc/.ppt) を COM で変換する際に使用 | PSF-2.0 (エンジンは OS/Office 機能) |
+
+## 旧 Office 形式 (.xls/.doc/.ppt) の外部前提 — Microsoft Office
+
+旧 OLE2/BIFF バイナリ形式 (`.xls` / `.doc` / `.ppt`) は純 Python では読めないため、
+**Windows 上でインストール済みの Microsoft Office を COM 自動化**して OOXML へ変換
+してから抽出する。これは pip でも `requirements.lock` でも固定できない**外部前提**で
+あり、各実行環境で別途用意する必要がある:
+
+- **OS**: Windows のみ (COM は Windows 機能)
+- **Microsoft Office**: 対応アプリ (Excel / Word / PowerPoint) がインストール済みで
+  あること。Office 本体は商用ソフトであり本スキルには同梱・自動導入しない
+- **pywin32**: `pip install pywin32`。Windows 専用かつ Office 前提の任意機能のため、
+  ハッシュ固定の `requirements.lock` には**含めない**（決定論的な再現インストールを
+  旧形式パスの外部前提で汚さないため）。旧形式を扱う環境でのみ手動で導入する
+
+前提を満たさない場合、docextract は該当ファイルを**「Microsoft Office が必要」で
+ある旨を含む明確なエラー**で fail-closed する (黙って未対応扱いにはしない)。
 
 ## バージョン固定と再現性 (lockfile)
 

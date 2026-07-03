@@ -17,6 +17,7 @@
 ### 正常系（happy path）
 - 各形式の end-to-end 抽出: `test_docx.py` / `test_xlsx.py` / `test_pptx.py` / `test_pdf.py`
 - 公開 API `extract()` の返却契約: `test_extract_api.py`
+- 秘密度ラベル (MSIP) の解析と result.json / index.json への伝播: `test_sensitivity.py`
 - 出力データモデルの直列化: `test_models.py`
 - eval: `cases.jsonl` の docx/xlsx/pptx ケース（要素種別ごとの最小件数・本文一致）
 
@@ -24,6 +25,11 @@
 - 未対応形式・存在しないファイル → 明確な例外 / 非ゼロ終了: `test_cli.py`, `test_extract_api.py`
 - docagent が壊れた `result.json` / `elements` 欠落を拒否: `test_docagent.py`
 - 抽出器レジストリの重複登録拒否（`register_extractor` の `ValueError`）: `test_registry.py`
+- 旧形式 (`.xls`/`.doc`/`.ppt`) を Office/pywin32 不在で渡す → 「Office が必要」を含む
+  `OfficeUnavailableError` で fail-closed（変換例外の包み直し・委譲成功系も）: `test_legacy_com.py`
+- IRM/RMS 保護文書 → 操作者権限で Office COM 復号して抽出（Office 不在は Office 必須で停止）。
+  パスワード暗号化のみ `ProtectedDocumentError` で fail-closed（通常ファイルは非誤検知・
+  チャンク境界も検知）: `test_sensitivity.py`
 
 ### 境界（boundary）
 - 空段落・空表・不揃い行・0 寸法画像・空 style/location: `test_models.py`
@@ -52,6 +58,8 @@
 | CLI 終了コードの網羅（全サブコマンド × 異常系） | 部分 | 主要経路のみ。docagent サブコマンド個別の異常系は一部未網羅 |
 | 巨大ファイル / メモリ上限 / タイムアウト | 未評価 | 性能・資源上限は範囲外。DoS 耐性は保証しない |
 | 文字コード・破損 Office ファイルの網羅 | 部分 | 代表ケースのみ。ファジングは未導入（宿題） |
+| 旧形式 (`.xls`/`.doc`/`.ppt`) の**実 COM 変換**（Office ありでの成功系） | 未評価 | Microsoft Office + pywin32 という外部前提が CI に無く非決定。ユニットは fail-closed 経路と変換ダミー委譲で担保し、実 Office 変換はゴールデン未整備（宿題） |
+| 秘密度ラベルの**実ファイル**（Purview で実ラベル付与した Office 文書、実 IRM/RMS 暗号化） | 部分 | 検知・解析は合成フィクスチャ（OLE マーカー / 手組み custom.xml）で担保。実 Purview ラベル・実 RMS 暗号化ファイルでの往復は環境依存で未整備（宿題） |
 | 並行実行時のマニフェスト/ストア競合 | 未評価 | 単一プロセス前提。ロック機構なし（宿題） |
 
 ## 更新方針

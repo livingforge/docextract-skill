@@ -14,6 +14,16 @@
     "title": "...", "author": "...",
     "created": "...", "modified": "...",
     // xlsx: "sheets": [...] / pptx: "slide_count" / pdf: "page_count"
+    // 旧形式(.xls/.doc/.ppt)を COM 変換した場合のみ "converted_via": "Microsoft Excel COM (.xls -> .xlsx)"
+    "sensitivity": {              // 秘密度ラベル(MSIP)がある場合のみ。無ければキー自体が無い
+      "name": "社外秘",           // ラベル表示名
+      "id": "2096f6a2-…",         // ラベル GUID
+      "enabled": true,
+      "set_date": "2026-07-01T00:00:00Z",
+      "method": "Standard",       // Standard | Privileged
+      "site_id": "…", "content_bits": "…"
+      // 複数ラベルが埋め込まれている場合は "all": [ … ] に全件
+    }
   },
   "summary": { "text": 12, "table": 3, "image": 2 },  // type 別の要素数
   "elements": [ /* 下記の要素が文書内の出現順 */ ]
@@ -24,6 +34,14 @@
 ある同名ファイル (`2024/議事録.docx` と `2025/議事録.docx`) でも衝突しない。
 同じパスを再抽出すると同じ ID になる (冪等)。抽出結果は `output/<id>/result.json`
 に置かれ、`output/index.json` (抽出マニフェスト) に ID で索引される。
+
+`metadata.sensitivity` は秘密度ラベル (MSIP) が付いた文書に現れ (ラベルが残っている
+場合)、`index.json` の該当エントリにも同じ内容が載る (機密文書をコーパスで機械判定
+するため)。**IRM/RMS で暗号化された文書は、操作者の権限で Office COM により復号
+してから抽出**する (要 Windows + Office + pywin32)。**パスワード暗号化**の文書だけは
+鍵が別途必要なため抽出せず `extract()` が `ProtectedDocumentError` で停止する (詳細は
+[usage.md](usage.md) の「秘密度ラベル・保護文書の扱い」)。なお `result.json` 自体は
+無保護の平文であり元のラベルの暗号化・アクセス制御を継承しない点に注意。
 
 ## text 要素
 

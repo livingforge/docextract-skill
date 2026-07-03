@@ -8,6 +8,61 @@
 | Excel | `.xlsx` `.xlsm` | シートごとの表 (数式は計算結果)・埋め込み画像 (アンカーセル付き) |
 | PowerPoint | `.pptx` | テキストフレーム・表・画像 (スライド番号付き)・発表者ノート |
 | PDF | `.pdf` | テキスト段落・表 (自動検出)・埋め込み画像 — ページ番号と座標 (bbox) 付き |
+| 旧 Office (要 Office) | `.xls` `.doc` `.ppt` | **Windows + Microsoft Office 必須**。COM 自動化で OOXML へ変換してから上記と同じ内容を抽出する |
+
+### 旧形式 (`.xls` / `.doc` / `.ppt`) の扱い — Microsoft Office 必須
+
+`.xls` / `.doc` / `.ppt` は OOXML ではなく OLE2/BIFF バイナリ形式のため、
+純 Python ライブラリでは読めない。docextract は **Windows 上でインストール済みの
+Microsoft Office (Excel / Word / PowerPoint) を COM 自動化**し、旧形式を一時的に
+新形式 (OOXML) へ変換してから通常の抽出器へ委譲する。
+
+**前提 (いずれも満たさないと抽出できない):**
+
+- OS が **Windows** であること
+- 対応する **Microsoft Office アプリがインストール済み**であること
+  (`.xls`→Excel / `.doc`→Word / `.ppt`→PowerPoint)
+- **pywin32** が利用可能であること (`pip install pywin32`)
+
+前提を満たさない環境では、未対応形式として黙って弾くのではなく、**「Microsoft
+Office が必要」である旨と回避策を含む明確なエラー**で停止する (CLI では該当
+ファイルだけ `[NG]` となり、他ファイルの処理は継続・終了コードは非ゼロ)。
+Office を用意できない場合は、あらかじめ `.docx` / `.xlsx` / `.pptx` へ変換してから
+渡すこと。Office / pywin32 は再現性固定された `requirements.lock` には含まれない
+外部前提であり、別途各環境で用意する ([dependencies.md](../../package-meta/docextract/dependencies.md) 参照)。
+
+## 秘密度ラベル・保護文書の扱い (Microsoft Purview / AIP / IRM)
+
+秘密度ラベルは 2 種類あり、docextract は挙動を分ける（**操作者が対象文書への
+アクセス権を持つ前提**）。
+
+| 種類 | 実体 | docextract の挙動 |
+|------|------|-------------------|
+| **ラベルのみ**（暗号化なし） | 文書プロパティ `MSIP_Label_*` | 通常どおり抽出し、ラベルを `metadata.sensitivity` と `index.json` へ**伝播**する |
+| **ラベル＋暗号化 (IRM/RMS)** | 本体が RMS 暗号化された OLE2 コンテナ | **Office COM で復号して抽出**する（操作者の権限で復号）。要 Windows + Office + pywin32 |
+| **パスワード暗号化** | パスワードで暗号化された OLE2 コンテナ | アクセス権とは別に鍵（パスワード）が要るため抽出せず **`ProtectedDocumentError`** で停止 |
+
+- **保護 (暗号化) の検知**: 抽出前にファイルを検査し、IRM/RMS 暗号化・パスワード
+  暗号化を検知して経路を分ける。通常の抽出器へ素通しすると「zip でない」等の
+  不明瞭なエラーになるため、検知して「Office が無い」「未対応形式」などと
+  **取り違えない**ようにする。
+- **IRM/RMS の復号**: 操作者は対象文書へのアクセス権を持つ前提で、その権限で動く
+  Office に COM で開かせて復号し、暗号化なしの OOXML へ変換してから抽出する
+  （旧形式変換と同じ COM 経路）。Windows / 対応 Office アプリ / pywin32 が無い環境
+  では、「Microsoft Office が必要」である旨を含むエラーで fail-closed する
+  （その場合は復号済みのコピーを渡す）。
+- **パスワード暗号化**: パスワードはアクセス権とは別物で、COM で開くと入力待ちで
+  ハングしうる。復号鍵を扱わない方針のため専用エラーで停止する（復号済みのコピーを
+  渡すこと）。
+- **ラベルの伝播**: 暗号化されていない文書、および復号後にラベルが残っている文書の
+  ラベルは成果物へ運ばれる。下流（docagent コーパス／横断検索）が機密文書を機械
+  判定でき、**無印のまま検索へ流入するのを防ぐ**。旧形式 (.xls/.doc/.ppt) は COM
+  変換後の OOXML からラベルを読み継ぐ（IRM 復号後にラベルが外れる場合は付かないが、
+  それは許容）。
+- **注意 (格下げ)**: 抽出物 `result.json`・画像・一時 OOXML は**無保護・無暗号の
+  平文**であり、元ラベルの暗号化やアクセス制御を継承しない。機密を扱う場合は
+  出力先を保護領域に置く・不要になったら破棄する等、運用側で取り扱いを担保すること
+  （[threat-model.md](../../package-meta/docextract/threat-model.md) 参照）。
 
 ## CLI リファレンス
 
@@ -81,7 +136,7 @@ python -m unittest discover -s .github/skills/docextract/scripts/tests -v
 
 | やりがちな誤り | なぜ誤りか | 正しいやり方 |
 |----------------|-----------|--------------|
-| 旧形式 `.doc` / `.xls` / `.ppt` をそのまま渡す | 未対応形式で `ValueError`。無音では落ちない | 先に新形式（`.docx`/`.xlsx`/`.pptx`）へ変換してから渡す |
+| 旧形式 `.doc` / `.xls` / `.ppt` を Office の無い環境で渡す | 変換に Microsoft Office (COM) が必要。無ければ「Office が必要」と明確に失敗する（無音では落ちない） | Windows + Office を用意するか、先に新形式（`.docx`/`.xlsx`/`.pptx`）へ変換してから渡す |
 | `location` を手組みして result.json に書き足す | 座標系は形式ごとに異なり、手書きは接地（グラウンディング）を壊す | docagent の `search` が返す `location` をそのまま使う |
 | スクリプトのあるフォルダへ `cd` してから実行 | ランチャーは cwd 非依存。`.docextract/` がスクリプト側にできて散らばる | **常にプロジェクトルート**で実行し、入力は相対/絶対パスで渡す |
 | result.json を手で編集して「修正」する | 抽出物は再生成される派生物。手編集は次回抽出で失われる | 元文書を直すか、後工程（docagent のファクト）で補正する |
@@ -98,3 +153,7 @@ python -m unittest discover -s .github/skills/docextract/scripts/tests -v
 - **Excel の数式が None になる**: 保存時に計算結果キャッシュがないファイルは
   `data_only=True` で値が取れない。Excel で開いて保存し直すと解消する
 - **文字化けして見える**: result.json は UTF-8。ビューア側のエンコーディングを確認
+- **`.xls`/`.doc`/`.ppt` で「Microsoft Office が必要」と出る**: 旧形式は COM で
+  Office を使って変換する。Windows であること・対応 Office アプリが導入済みで
+  あること・`pip install pywin32` 済みであることを確認する。用意できなければ
+  新形式へ変換してから渡す

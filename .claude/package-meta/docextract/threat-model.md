@@ -34,6 +34,9 @@
 | T5 | 壊れた/欠損した `result.json`（`elements` 欠落・不正 JSON・生 Office 直渡し）が後工程へ伝播 | B3 | **D4**: docagent が境界でランタイム検証し hard-error で拒否（fail-closed な取り込み） | `tests/test_docagent.py`（invalid JSON / elements 欠落 / 生ファイル拒否） |
 | T6 | 抽出器レジストリの差し替えで既存形式を無断上書き（意図しない挙動注入） | B3 | **D5**: `register_extractor` は既存形式の上書きを既定拒否（`overwrite=True` 明示が必要） | `tests/test_registry.py` |
 | T7 | 秘密情報（トークン等）のハードコード / ログへの漏洩 | B4 | **D6**: 秘密はコードに持たず env 経由。監査ログは event/相関ID・件数など非機微メタのみを記録 | 設計レビュー（機微値をログイベントに載せない）／`dependencies.md` |
+| T8 | 旧形式 (.xls/.doc/.ppt) 変換のため外部 Office プロセスを COM 起動する経路が、Office/pywin32 不在時に不明瞭に失敗し「未対応」と誤認される | B2 | **D7**: COM 経路は fail-closed。pywin32/Office/COM のいずれが欠けても「Microsoft Office が必要」である旨と回避策を含む `OfficeUnavailableError` で停止し、生の COM 例外も原因として保持（silent fallback しない）。一時 OOXML への変換は隔離した一時ディレクトリで行い入力を書き換えない | `tests/test_legacy_com.py`（fail-closed メッセージ / RuntimeError 種別 / 変換例外の包み直し / 委譲成功系） |
+| T9 | 暗号化/IRM 文書を通常抽出器へ素通しして不明瞭に失敗する／保護起因の失敗を「Office が無い」「未対応」と取り違える／パスワード暗号化を自動化で開こうとして入力待ちハングする | B2 | **D8**: 抽出前に暗号化/IRM 構造 (MS-OFFCRYPTO の DataSpaces/EncryptedPackage/DRM) を検知し経路を分ける。IRM/RMS は**操作者のアクセス権前提で Office COM により復号**して抽出（旧形式と同じ COM 経路）。パスワード暗号化のみ鍵が別途要るため `ProtectedDocumentError` で fail-closed。Office 不在は「Office が必要」である旨で停止 | `tests/test_sensitivity.py`（検知・非誤検知・チャンク境界・IRM の復号経路/成功系・パスワード暗号化の拒否） |
+| T10 | 秘密度ラベル付き文書が無印のまま抽出され、機密内容がラベル情報を失って下流コーパス（横断検索）へ流入する | B3 | **D9**: 暗号化されていない文書の `MSIP_Label_*` を読み、`result.json` の `metadata.sensitivity` と `index.json` へ伝播。下流が機密を機械判定できる（無印流入の防止） | `tests/test_sensitivity.py`（ラベル解析・result/manifest への伝播・ラベル無しは非付与） |
 
 ## 残存リスク（受容 / 今後）
 
@@ -43,6 +46,18 @@
   [dependencies.md](dependencies.md) の方針で段階導入中（`--ocr-backend windows` +
   `--no-image-tables` で外部モデルDLを完全回避できる）。
 - **並行実行時の競合**: マニフェスト/ストアへの同時書き込みロックは未実装（単一プロセス前提）。
+- **抽出物は無保護平文（格下げ）**: ラベル付き文書 (ラベルのみ)、および操作者権限で
+  復号した IRM/RMS 文書を抽出すると、`result.json`・画像・一時 OOXML は**無暗号・
+  無アクセス制御の平文**になり、元ラベルの保護を継承しない。これは「操作者はアクセス
+  権を持ち、復号・平文化は許容される」という運用前提のもとで**意図的に受容**する。
+  ラベル情報は残っていれば `metadata.sensitivity` として運ぶが、出力そのものの保護
+  （暗号化・格納先の権限・破棄）は本ツールの範囲外で運用側が担保する。パスワード
+  暗号化文書だけは鍵が別途要るため D8 で抽出前に停止する。
+- **旧形式変換時の Office 側マクロ実行**: `.xls`/`.doc`/`.ppt` を COM で開く際、
+  マクロ (VBA) を含む細工ファイルは Office 側の設定次第で実行されうる。docextract は
+  読み取り専用で開くが Office のマクロ設定までは制御しない。**信頼できる自組織の
+  資料のみを対象**とする本ツールの前提 (スコープ) の範囲で受容し、外部由来の旧形式を
+  扱う場合は Office 側でマクロ無効化 (保護ビュー/信頼センター) を設定して運用する。
 
 ## 更新方針
 
