@@ -1,0 +1,61 @@
+# データ辞書（データ項目の正本）— 種別はディレクトリ名 (data-item) で決まる
+
+- id: di-0001
+  name: 顧客コード
+  type: 数値
+  length: 8
+  description: 顧客を一意に識別するコード。採番はシステムが自動で行う。
+  domain: "10000000〜99999999"
+  status: approved
+  source:
+    doc: 基本設計書_顧客管理.docx
+    location: { page: 12 }
+    evidence: "顧客コードは8桁の数値とし、システムが自動採番する。"
+
+- id: di-0002
+  name: 顧客名
+  type: 文字列
+  length: 100
+  description: 顧客の正式名称。法人の場合は登記名称。
+  status: approved
+  source:
+    doc: 基本設計書_顧客管理.docx
+    location: { page: 12 }
+    evidence: "顧客名は全角100文字以内で正式名称を登録する。"
+
+- id: di-0003
+  name: 受注番号
+  type: 文字列
+  length: 12
+  description: 受注を一意に識別する番号。形式は「JU + 年度4桁 + 連番6桁」。
+  domain: "JU\\d{10}"
+  status: approved
+  source:
+    doc: 基本設計書_受注管理.docx
+    location: { page: 8 }
+    evidence: "受注番号は「JU」+年度4桁+連番6桁の12桁とする。"
+
+- id: di-0004
+  name: 受注日
+  type: 日付
+  description: 受注が確定した日付。
+  status: approved
+  source:
+    doc: 基本設計書_受注管理.docx
+    location: { page: 8 }
+    evidence: "受注日は受注確定時のシステム日付を初期値とする。"
+
+- id: di-0005
+  name: 受注金額
+  type: 数値
+  length: 13
+  description: 受注の合計金額（税抜、円）。
+  domain: "0 以上"
+  status: review
+  source:                       # 出典が複数ある場合はリストで書ける
+    - doc: 要件定義書.docx
+      location: { page: 22 }
+      evidence: "受注金額を管理し、承認フローの判定に用いる。"
+    - doc: 議事録_2026-06-20.docx
+      location: { order: 34 }
+      evidence: "受注金額は税抜で持ち、税額は表示時に計算する方向で合意。"

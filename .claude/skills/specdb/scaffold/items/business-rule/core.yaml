@@ -1,0 +1,29 @@
+# 業務ルールの正本
+# applies_to は constrains 関係の埋め込み記述（ID の単純リスト形式）。
+
+- id: br-0001
+  statement: 顧客コードは一度採番したら欠番になっても再利用しない。
+  applies_to: [di-0001]
+  status: approved
+  source:
+    doc: 議事録_2026-05-15.docx
+    location: { order: 21 }
+    evidence: "顧客コードの再利用はしない方針で確定。"
+
+- id: br-0002
+  statement: 受注金額が 1,000 万円以上の受注は部門長の承認を必要とする。
+  applies_to: [di-0005]
+  status: approved
+  source:
+    doc: 要件定義書.docx
+    location: { page: 23 }
+    evidence: "1,000万円以上の受注は部門長承認を必須とする。"
+
+- id: br-0003
+  statement: 受注日は未来日を入力できない。
+  applies_to: [di-0004]
+  status: review
+  source:
+    doc: 議事録_2026-06-20.docx
+    location: { order: 40 }
+    evidence: "受注日の未来日入力は不可とする方向（最終確認待ち）。"

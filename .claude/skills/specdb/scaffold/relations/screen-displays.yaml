@@ -1,0 +1,21 @@
+# 独立した関係レコード（埋め込みではない書き方の例）
+# 画面 → データ項目 の「表示する」関係。
+# 関係もアイテムと同じコア属性 status / source を持てる。
+
+- type: displays
+  from: scr-0001
+  to: di-0003
+  status: approved
+- type: displays
+  from: scr-0001
+  to: di-0004
+  status: approved
+- type: displays
+  from: scr-0001
+  to: di-0005
+  note: 税抜表示。税額は表示時に計算する。
+  status: review
+  source:
+    doc: 議事録_2026-06-20.docx
+    location: { order: 35 }
+    evidence: "一覧の金額は税抜表示とし、税額は画面側で計算する。"

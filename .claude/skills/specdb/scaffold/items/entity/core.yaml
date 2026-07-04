@@ -1,0 +1,46 @@
+# エンティティ（テーブル）の正本
+# columns は has-column 関係の埋め込み記述（metamodel.yaml の embedded 宣言）。
+# 読み込み時に独立した関係レコードへ正規化される。型・桁はデータ辞書側が正本。
+
+- id: ent-0001
+  name: 顧客マスタ
+  physical_name: M_CUSTOMER
+  description: 取引先である顧客の基本情報を保持するマスタ。
+  status: approved
+  source:
+    doc: 基本設計書_顧客管理.docx
+    location: { page: 11 }
+    evidence: "顧客マスタは顧客の基本情報を一元管理する。"
+  columns:
+    - item: di-0001
+      physical_name: CUSTOMER_CD
+      pk: true
+      required: true
+    - item: di-0002
+      physical_name: CUSTOMER_NAME
+      required: true
+
+- id: ent-0002
+  name: 受注
+  physical_name: T_ORDER
+  description: 顧客からの受注 1 件を 1 レコードで保持するトランザクション。
+  status: approved
+  source:
+    doc: 基本設計書_受注管理.docx
+    location: { page: 7 }
+    evidence: "受注テーブルは受注単位で1レコードを保持する。"
+  columns:
+    - item: di-0003
+      physical_name: ORDER_NO
+      pk: true
+      required: true
+    - item: di-0004
+      physical_name: ORDER_DATE
+      required: true
+    - item: di-0001
+      physical_name: CUSTOMER_CD
+      required: true
+      note: 顧客マスタへの外部キー
+    - item: di-0005
+      physical_name: ORDER_AMOUNT
+      required: true
