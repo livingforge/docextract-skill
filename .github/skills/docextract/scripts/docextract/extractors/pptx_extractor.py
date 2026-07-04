@@ -49,7 +49,15 @@ def _extract_shape(shape, slide_no: int, saver: ImageSaver, result: ExtractionRe
         return
 
     if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-        image = shape.image
+        # PICTURE と分類されても、埋め込み blob を持たない図形がある
+        # (リンク画像や、ベクタ図形/SVG フォールバック等)。その場合
+        # python-pptx は ValueError('no embedded image') を送出する。
+        # ここで捕捉しないと 1 図形の失敗で文書全体の抽出が落ちるため、
+        # 取り出せない画像は握りつぶしてスキップする。
+        try:
+            image = shape.image
+        except (ValueError, KeyError):
+            return
         rel_path = saver.save(image.blob, image.ext)
         width, height = image.size
         result.elements.append(
