@@ -69,3 +69,10 @@
   license: BSD-3-Clause
   status: approved
   source: { doc: specdb/README.md, location: { section: "構成" }, evidence: "依存: PyYAML + Jinja2。" }
+
+- id: lib-pytest
+  name: pytest
+  usage: 同梱テストの実行（自己検証・テスト依存。requirements.txt に統合し配布物へ同梱、requirements.lock でハッシュ固定）
+  license: MIT
+  status: review
+  source: { doc: dependencies.md, location: { section: "テスト依存 (pip) — 配布物に同梱" }, evidence: "pytest 同梱テストの実行 (自己検証) MIT" }

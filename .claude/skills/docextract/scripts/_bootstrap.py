@@ -52,6 +52,32 @@ _UV_INSTALL_HINT = (
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
+def _force_utf8_io() -> None:
+    """非 UTF-8 コンソール (Windows 既定の cp932 等) でも非 ASCII 出力で
+    クラッシュしないよう、標準出力/標準エラーを UTF-8・エラー耐性つきに再設定する。
+
+    em-dash (—) など cp932 に無い文字を print した際の UnicodeEncodeError を防ぐ。
+    ``PYTHONIOENCODING=utf-8`` を毎回外から設定するのと同じ効果を、呼び出し側
+    (エージェント/利用者) に意識させずコード側で恒常的に効かせるためのもの。
+    既に UTF-8 の環境や stdout がパイプの場合でも実質無害。この _bootstrap を
+    import した時点で一度だけ適用されるので、各エントリポイントは import する
+    だけでよい。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:  # 既に UTF-8 でラップされていない/差し替え済み等
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (ValueError, OSError):
+            pass
+
+
+# import 時に一度だけ適用する。run_docextract / run_docagent / setup_env は
+# いずれも本モジュールを import するため、これだけで全エントリを覆える。
+_force_utf8_io()
+
+
 def _bootstrap_log_path(root: Path) -> Path:
     """セットアップ (uv venv / pip install) の詳細ログの保存先。
 
@@ -374,6 +400,10 @@ def ensure_env(script: Path, requirements: Path, skill: str = "docextract") -> N
     # 完了を待たない挙動になるため、subprocess で待ち合わせて終了コードを引き継ぐ。
     env = dict(os.environ)
     env[_GUARD_ENV] = "1"
+    # 再 exec 後の子/孫プロセスでも cp932 由来の UnicodeEncodeError を防ぐ。
+    # 利用者が明示設定していれば尊重する (setdefault)。
+    env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     completed = subprocess.run(
         [str(venv_python), str(script), *sys.argv[1:]], env=env
     )

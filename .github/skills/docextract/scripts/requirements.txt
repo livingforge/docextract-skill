@@ -12,3 +12,7 @@ rapid-layout>=1.2
 
 # 代替 OCR バックエンド (Windows 標準 OCR、オフライン用)
 winocr>=0.0.14
+
+# テスト (同梱テストの自己検証。ランタイムではないが、配布物を単一 requirements に
+# 統合するためここに含める。requirements.lock にもハッシュ固定で入る)
+pytest>=8.0

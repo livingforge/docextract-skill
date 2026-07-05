@@ -55,7 +55,7 @@
 |---|---|---|
 | OCR 実モデル出力（RapidOCR / Windows OCR の認識精度） | 未評価 | 非決定・大容量モデル DL 依存。eval は `ocr=False` で無効化。実モデルはゴールデン未整備（宿題） |
 | 画像内の表復元（rapid_layout + rapid_table） | 未評価 | 同上（モデル依存・非決定）。`image_tables=False` で無効化 |
-| PDF フィクスチャの eval | 部分 | 生成に PyMuPDF(AGPL) が必要で runtime 非依存にできず、eval は docx/xlsx/pptx のみ。PDF はユニット (`test_pdf.py`) でカバー |
+| PDF フィクスチャの eval | 部分 | ユニット (`test_pdf.py`) は runtime 依存 (Pillow) + 標準ライブラリのみで PDF を生成しカバー済み（PyMuPDF 非依存）。eval コーパスは docx/xlsx/pptx のみで PDF 未拡張（宿題） |
 | docextract → docagent の E2E 連携（実 CLI 間の run_id 伝播） | 部分 | 各層のユニットで担保。プロセス間 E2E は未整備（宿題） |
 | CLI 終了コードの網羅（全サブコマンド × 異常系） | 部分 | 主要経路のみ。docagent サブコマンド個別の異常系は一部未網羅 |
 | 巨大ファイル / メモリ上限 / タイムアウト | 未評価 | 性能・資源上限は範囲外。DoS 耐性は保証しない |

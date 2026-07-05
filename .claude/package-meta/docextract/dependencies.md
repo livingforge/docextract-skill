@@ -19,6 +19,20 @@
 | winocr (任意) | Windows 標準 OCR のラッパー | MIT (エンジンは OS 機能) |
 | pywin32 (任意) | 旧形式 (.xls/.doc/.ppt) を COM で変換する際に使用 | PSF-2.0 (エンジンは OS/Office 機能) |
 
+## テスト依存 (pip) — 配布物に同梱
+
+配布物には自己検証用のテスト (`scripts/tests/`) を同梱しており、配布先でも
+`.venv/Scripts/python.exe -m pytest scripts/tests` で検証できる。そのための依存
+(pytest) は **`requirements.txt` に統合**して配布物に含め、`requirements.lock`
+にもハッシュ固定で入る。`setup` が共有 venv へ他の依存と一括で導入する。
+
+| ライブラリ | 用途 | ライセンス |
+|-----------|------|-----------|
+| pytest | 同梱テストの実行 (自己検証) | MIT |
+
+pytest はランタイムの実行には不要だが、依存記述を単一ファイルに統合する方針の
+ため上記実行時依存と同じ `requirements.txt` / `requirements.lock` で管理する。
+
 ## 旧 Office 形式 (.xls/.doc/.ppt) の外部前提 — Microsoft Office
 
 旧 OLE2/BIFF バイナリ形式 (`.xls` / `.doc` / `.ppt`) は純 Python では読めないため、

@@ -5,7 +5,7 @@
   path: docextract/
   description: >-
     抽出エンジン本体。形式判定・各形式のエクストラクタ（python-docx /
-    openpyxl / python-pptx / PyMuPDF 系）・OCR・画像内表検出・
+    openpyxl / python-pptx / pdfplumber + pypdf）・OCR・画像内表検出・
     衝突しない ID の採番・マニフェスト管理を含む。
   status: approved
   rules: [dr-01, dr-04]
@@ -18,6 +18,7 @@
     - { lib: lib-rapidocr, note: OCR と画像内表検出（rapid_layout / rapid_table を含む） }
     - { lib: lib-pillow }
     - { lib: lib-winocr, note: Windows OCR バックエンド利用時のみ }
+    - { lib: lib-pytest, note: テスト依存（同梱テストの自己検証）。ランタイム非依存だが requirements.txt に統合して同梱 }
   source:
     doc: README.md
     location: { section: "構成" }

@@ -26,6 +26,25 @@ import sys
 from pathlib import Path
 
 
+def _force_utf8_io() -> None:
+    """非 UTF-8 コンソール (Windows 既定の cp932 等) でも非 ASCII 出力で
+    クラッシュしないよう、標準出力/標準エラーを UTF-8・エラー耐性つきに再設定する。
+
+    venv コマンド specdb / docextract は日本語や em-dash (—) を出すため、素の
+    cp932 コンソールでは UnicodeEncodeError になりうる。launcher は独立した
+    install 対象 (本体パッケージに依存しない) なので、ここに自己完結で持つ。
+    ``PYTHONIOENCODING=utf-8`` を毎回設定するのと同じ効果を利用者に意識させず効かせる。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (ValueError, OSError):
+            pass
+
+
 def _is_skill_dir(candidate: Path) -> bool:
     """スキル CLI として実行できるディレクトリか。
 
@@ -78,6 +97,7 @@ def _with_default_root(argv: list[str], root: Path) -> list[str]:
 
 
 def main(name: str, argv: list[str]) -> int:
+    _force_utf8_io()
     resolved = _resolve_upward(name, Path.cwd())
     if resolved is None:
         print(

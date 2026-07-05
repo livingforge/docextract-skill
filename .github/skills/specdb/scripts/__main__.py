@@ -19,6 +19,28 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
+
+def _force_utf8_io() -> None:
+    """非 UTF-8 コンソール (Windows 既定の cp932 等) でも非 ASCII 出力で
+    クラッシュしないよう、標準出力/標準エラーを UTF-8・エラー耐性つきに再設定する。
+
+    em-dash (—) など cp932 に無い文字を print した際の UnicodeEncodeError を防ぐ。
+    ``PYTHONIOENCODING=utf-8`` を毎回外から設定するのと同じ効果を、利用者に
+    意識させずコード側で恒常的に効かせる。各 specdb ツールはこの統一エントリ
+    (または venv コマンド specdb) 経由で実行されるため、ここで一度適用すれば覆える。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (ValueError, OSError):
+            pass
+
+
+_force_utf8_io()
+
 # サブコマンド -> (ツールファイル, 一行説明)。usage の表示順を兼ねる。
 COMMANDS: dict[str, tuple[str, str]] = {
     "engine": ("engine.py", "検証レポート + 統計（error で exit 1）"),

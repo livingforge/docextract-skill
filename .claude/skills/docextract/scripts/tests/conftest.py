@@ -6,18 +6,24 @@
 
 from __future__ import annotations
 
+import zlib
+from io import BytesIO
 from pathlib import Path
 
-import fitz  # PyMuPDF
 import pytest
 
 
 @pytest.fixture(scope="session")
 def png_bytes() -> bytes:
-    """小さな有効な PNG バイト列 (6x6, 赤)。"""
-    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 6, 6))
-    pix.set_rect(pix.irect, (200, 50, 50))
-    return pix.tobytes("png")
+    """小さな有効な PNG バイト列 (6x6, 赤)。
+
+    ランタイム依存の Pillow で生成する (AGPL の PyMuPDF は使わない)。
+    """
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (6, 6), (200, 50, 50)).save(buf, format="PNG")
+    return buf.getvalue()
 
 
 @pytest.fixture
@@ -298,7 +304,153 @@ def make_pptx(tmp_path: Path):
 
 # --------------------------------------------------------------------------
 # pdf ビルダー
+#
+# PyMuPDF (fitz, AGPL) を使わず、ランタイム依存の Pillow (画像デコード) と
+# 標準ライブラリ zlib だけで最小の PDF をバイト列から直接組み立てる。
+# 生成物は抽出器が読む要素を備える:
+#   - テキスト層 (標準 Helvetica の Tj)           -> pdfplumber がテキスト行を抽出
+#   - ストローク罫線 (m/l/S) + セル内テキスト      -> pdfplumber の罫線ベース表検出
+#   - 埋め込み画像 XObject (FlateDecode/DeviceRGB) -> pypdf が画像として抽出
+# 座標は旧 fitz フィクスチャに合わせ「左上原点・y 下向き」で受け取り、PDF の
+# 「左下原点・y 上向き」へ変換する (Y = ページ高 - y)。
 # --------------------------------------------------------------------------
+_PDF_PAGE_W, _PDF_PAGE_H = 612.0, 792.0
+
+
+def _pdf_num(v: float) -> bytes:
+    """PDF 用の数値表記 (整数はそのまま、少数は末尾の 0 を落とす)。"""
+    return f"{v:.2f}".rstrip("0").rstrip(".").encode("latin-1")
+
+
+def _pdf_str(s: str) -> bytes:
+    """PDF リテラル文字列。特殊文字 \\ ( ) をエスケープする。"""
+    out = s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return out.encode("latin-1", "replace")
+
+
+def _pdf_image_xobject(img_bytes: bytes) -> bytes:
+    """画像バイト列を FlateDecode/DeviceRGB の画像 XObject 本体に変換する。"""
+    from PIL import Image
+
+    img = Image.open(BytesIO(img_bytes)).convert("RGB")
+    w, h = img.size
+    comp = zlib.compress(img.tobytes())
+    return (
+        b"<</Type/XObject/Subtype/Image/Width %d/Height %d"
+        b"/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/FlateDecode"
+        b"/Length %d>>\nstream\n%s\nendstream" % (w, h, len(comp), comp)
+    )
+
+
+def _pdf_page_content(spec: dict) -> bytes:
+    """1 ページ分のコンテンツストリーム (テキスト・罫線・画像描画命令) を作る。"""
+    H = _PDF_PAGE_H
+    parts: list[bytes] = []
+    for text, (x, y) in spec.get("texts", []):
+        parts.append(
+            b"BT /F1 11 Tf %s %s Td (%s) Tj ET\n"
+            % (_pdf_num(x), _pdf_num(H - y), _pdf_str(text))
+        )
+    grid = spec.get("grid")
+    if grid:
+        n_rows, n_cols = grid["rows"], grid["cols"]
+        x0, y0 = grid.get("origin", (100, 200))
+        cw, ch = grid.get("cw", 80), grid.get("ch", 30)
+        for i in range(n_rows + 1):  # 水平罫線
+            yy = H - (y0 + i * ch)
+            parts.append(b"%s %s m %s %s l S\n" % (
+                _pdf_num(x0), _pdf_num(yy),
+                _pdf_num(x0 + n_cols * cw), _pdf_num(yy)))
+        for j in range(n_cols + 1):  # 垂直罫線
+            xx = x0 + j * cw
+            parts.append(b"%s %s m %s %s l S\n" % (
+                _pdf_num(xx), _pdf_num(H - y0),
+                _pdf_num(xx), _pdf_num(H - (y0 + n_rows * ch))))
+        for (i, j), val in grid.get("cells", {}).items():
+            parts.append(
+                b"BT /F1 10 Tf %s %s Td (%s) Tj ET\n"
+                % (_pdf_num(x0 + j * cw + 4), _pdf_num(H - (y0 + i * ch + 18)),
+                   _pdf_str(val)))
+    for idx, (_img, rect) in enumerate(spec.get("images", []), start=1):
+        x0, y0, x1, y1 = rect
+        parts.append(b"q %s 0 0 %s %s %s cm /Im%d Do Q\n" % (
+            _pdf_num(x1 - x0), _pdf_num(y1 - y0),
+            _pdf_num(x0), _pdf_num(H - y1), idx))
+    return b"".join(parts)
+
+
+def _write_pdf(path: Path, pages: list[dict] | None,
+               title: str | None, author: str | None) -> None:
+    """最小構成の PDF をバイト列から組み立てて path に書き出す。"""
+    pages = pages if pages else [{}]
+
+    # オブジェクト番号を先に割り当てる (Pages の Kids が前方参照になるため)。
+    # 1=Catalog, 2=Pages, 3=Font, 4=Info、以降ページごとに content/画像/page。
+    body: dict[int, bytes] = {
+        1: b"<</Type/Catalog/Pages 2 0 R>>",
+        3: b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+    }
+    info = b"<<"
+    if title is not None:
+        info += b"/Title(%s)" % _pdf_str(title)
+    if author is not None:
+        info += b"/Author(%s)" % _pdf_str(author)
+    body[4] = info + b">>"
+
+    next_obj = 5
+    page_nums: list[int] = []
+    for spec in pages:
+        content = _pdf_page_content(spec)
+        content_num = next_obj
+        next_obj += 1
+        body[content_num] = (
+            b"<</Length %d>>\nstream\n%s\nendstream" % (len(content), content)
+        )
+        image_nums: list[int] = []
+        for img_bytes, _rect in spec.get("images", []):
+            body[next_obj] = _pdf_image_xobject(img_bytes)
+            image_nums.append(next_obj)
+            next_obj += 1
+        res = b"/Font<</F1 3 0 R>>"
+        if image_nums:
+            xobjs = b"".join(
+                b"/Im%d %d 0 R" % (k, num)
+                for k, num in enumerate(image_nums, start=1))
+            res += b"/XObject<<%s>>" % xobjs
+        page_num = next_obj
+        next_obj += 1
+        body[page_num] = (
+            b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 %s %s]"
+            b"/Resources<<%s>>/Contents %d 0 R>>" % (
+                _pdf_num(_PDF_PAGE_W), _pdf_num(_PDF_PAGE_H),
+                res, content_num))
+        page_nums.append(page_num)
+
+    kids = b" ".join(b"%d 0 R" % n for n in page_nums)
+    body[2] = b"<</Type/Pages/Kids[%s]/Count %d>>" % (kids, len(page_nums))
+
+    # 本体を番号順に直列化し、各オブジェクトの先頭オフセットを記録する。
+    buf = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets: dict[int, int] = {}
+    for num in range(1, next_obj):
+        offsets[num] = len(buf)
+        buf += b"%d 0 obj\n" % num
+        buf += body[num]
+        buf += b"\nendobj\n"
+
+    xref_off = len(buf)
+    size = next_obj  # オブジェクト 0..next_obj-1
+    buf += b"xref\n0 %d\n" % size
+    buf += b"0000000000 65535 f \n"
+    for num in range(1, size):
+        buf += b"%010d 00000 n \n" % offsets[num]
+    buf += b"trailer\n<</Size %d/Root 1 0 R/Info 4 0 R>>\n" % size
+    buf += b"startxref\n%d\n%%%%EOF\n" % xref_off
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bytes(buf))
+
+
 @pytest.fixture
 def make_pdf(tmp_path: Path):
     def _make(
@@ -308,35 +460,8 @@ def make_pdf(tmp_path: Path):
         title: str | None = None,
         author: str | None = None,
     ) -> Path:
-        doc = fitz.open()
-        for spec in pages or [{}]:
-            pg = doc.new_page()
-            for text, pos in spec.get("texts", []):
-                pg.insert_text(pos, text, fontsize=11)
-            # 罫線付きの表を描く: grid = 行数・列数・原点・セルサイズ・セルテキスト
-            grid = spec.get("grid")
-            if grid:
-                n_rows = grid["rows"]
-                n_cols = grid["cols"]
-                x0, y0 = grid.get("origin", (100, 200))
-                cw = grid.get("cw", 80)
-                ch = grid.get("ch", 30)
-                for i in range(n_rows + 1):
-                    pg.draw_line((x0, y0 + i * ch), (x0 + n_cols * cw, y0 + i * ch))
-                for j in range(n_cols + 1):
-                    pg.draw_line((x0 + j * cw, y0), (x0 + j * cw, y0 + n_rows * ch))
-                for (i, j), val in grid.get("cells", {}).items():
-                    pg.insert_text((x0 + j * cw + 4, y0 + i * ch + 18), val, fontsize=10)
-            for img, rect in spec.get("images", []):
-                pg.insert_image(fitz.Rect(*rect), stream=img)
-        if title is not None:
-            doc.set_metadata({**(doc.metadata or {}), "title": title})
-        if author is not None:
-            doc.set_metadata({**(doc.metadata or {}), "author": author})
         path = tmp_path / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        doc.save(str(path))
-        doc.close()
+        _write_pdf(path, pages, title, author)
         return path
 
     return _make

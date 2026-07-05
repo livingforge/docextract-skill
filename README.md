@@ -205,7 +205,7 @@ docextract/
     ├── docx_extractor.py   # python-docx
     ├── xlsx_extractor.py   # openpyxl
     ├── pptx_extractor.py   # python-pptx
-    └── pdf_extractor.py    # PyMuPDF
+    └── pdf_extractor.py    # pdfplumber + pypdf
 ```
 
 ## 画像内テキストの OCR

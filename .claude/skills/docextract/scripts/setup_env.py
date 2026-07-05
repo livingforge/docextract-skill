@@ -73,6 +73,11 @@ def check() -> int:
             [str(venv_python), "-c", "import yaml, jinja2"], capture_output=True
         )
         status("specdb 依存 (PyYAML + Jinja2)", probe.returncode == 0)
+        pytest_probe = subprocess.run(
+            [str(venv_python), "-c", "import pytest"], capture_output=True
+        )
+        status("テスト依存 (pytest)", pytest_probe.returncode == 0,
+               "" if pytest_probe.returncode == 0 else "未インストール")
         # docextract 依存は marker（bootstrap の記録）で判定する。手動構築の venv
         # では未記録がありうるため、失敗にはせず情報として出す。
         if (venv / ".docextract.reqhash").exists():
