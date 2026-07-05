@@ -1,0 +1,19 @@
+# venv コマンド (specdb / docextract) を提供する探索係パッケージ。
+# _bootstrap.py が共有 venv へ install する。コードの正本（各スキル）は
+# install せず、実行時に cwd から上方探索して展開済みスキルへ委譲する。
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skill-launcher"
+version = "1.0.0"
+description = "スキル CLI を任意のディレクトリから起動する console script (specdb / docextract)"
+requires-python = ">=3.10"
+
+[project.scripts]
+specdb = "skill_launcher:main_specdb"
+docextract = "skill_launcher:main_docextract"
+
+[tool.setuptools]
+py-modules = ["skill_launcher"]

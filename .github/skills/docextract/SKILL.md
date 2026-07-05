@@ -18,9 +18,12 @@ see [package-meta/docextract/dependencies.md](../../package-meta/docextract/depe
 
 ## Setup (gated on first run)
 
-The first run of `run_docextract.py` / `run_docagent.py` bootstraps a shared `.venv`
-at the project root with [uv](https://docs.astral.sh/uv/), installs `requirements.txt`,
-and re-executes there; later runs start instantly.
+Set up the environment once with the dedicated command (or delegate to the
+@skill-setup agent). It builds the shared `.venv` at the project root with
+[uv](https://docs.astral.sh/uv/), installs the requirements of both skills, and
+installs the venv commands `specdb` / `docextract`. It is idempotent, and
+`--check` reports the current state without changing anything. As a fallback,
+the first run of `extract` / `docagent` also triggers the same bootstrap.
 
 Because bootstrap can run a **remote installer** and download **hundreds of MB**, these
 high-risk steps go through an **approval gate** and are **safe-by-default (opt-in, fail-closed)**:
@@ -35,19 +38,22 @@ high-risk steps go through an **approval gate** and are **safe-by-default (opt-i
   `--ocr-backend windows` (Windows only, built-in OCR).
 
 ```bash
-# approved one-off run (bash; PowerShell: set $env:DOCEXTRACT_AUTOINSTALL=1 first)
-DOCEXTRACT_AUTOINSTALL=1 python .github/skills/docextract/scripts/run_docextract.py --dir <folder> -r
+python .github/skills/docextract setup --check   # state only, changes nothing, no approval needed
+# approved one-off setup (bash; PowerShell: set $env:DOCEXTRACT_AUTOINSTALL=1 first)
+DOCEXTRACT_AUTOINSTALL=1 python .github/skills/docextract setup
 ```
 
 ## Usage
 
-Run **from the project root** — never `cd` into the scripts directory; the
-launcher is cwd-independent. Paths below are relative to the project root.
+Commands below use the console script `docextract` (installed into the shared
+venv by the bootstrap above; call it as `.venv/Scripts/docextract` if the venv
+is not activated). It works from any directory inside the project. Before the
+venv exists, use `python .github/skills/docextract extract ...` instead — same interface.
 
 ```bash
-python .github/skills/docextract/scripts/run_docextract.py <files...> -o <output-dir>
-python .github/skills/docextract/scripts/run_docextract.py --dir <folder> -o <output-dir>     # batch a folder
-python .github/skills/docextract/scripts/run_docextract.py --dir <folder> -r -o <output-dir>  # recurse
+docextract extract <files...> -o <output-dir>
+docextract extract --dir <folder> -o <output-dir>     # batch a folder
+docextract extract --dir <folder> -r -o <output-dir>  # recurse
 ```
 
 - Formats: `.docx` `.xlsx` `.xlsm` `.pptx` `.pdf` (wildcards ok). Legacy
@@ -67,7 +73,7 @@ python .github/skills/docextract/scripts/run_docextract.py --dir <folder> -r -o 
   See [docs/usage.md](docs/usage.md#llm--エージェントに渡すとき--標準出力をレシートにする).
 
 Work with extracted results through the same launcher:
-`python .github/skills/docextract/scripts/run_docagent.py <subcommand>`.
+`docextract docagent <subcommand>`.
 
 Python API:
 

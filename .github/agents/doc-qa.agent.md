@@ -17,32 +17,28 @@ tools: ['runCommands', 'search']
 ### 許可コマンド（最小権限。これ以外は実行しない）
 実行してよいのは次の読み取り系サブコマンドだけ。抽出・保存・任意のシェル操作はしない
 （`runCommands`/`Bash` の用途をここに限定する）。抽出そのものが要るなら @doc-indexer に引き継ぐ。
-- `python .github/skills/docextract/scripts/run_docagent.py {search|get|text|facts} ...`
+- `docextract docagent {search|get|text|facts} ...`
 - `Read` / `Grep`（生成物の確認のみ）
 
-## セットアップ（高リスク操作の事前承認ゲート）
-ランチャー（`run_docextract.py` / `run_docagent.py`）の初回実行では、次の**高リスク操作**
-（外部取得・インストール）が走りうる。これらは既定で**未承認なら停止**（fail-closed）する。
-実行前に必ず「実行される具体的コマンドとダウンロード規模」をユーザに提示し、**承認を得てから**
-実行すること。承認なしに自動実行してはならない。
+## 実行環境（前提: @skill-setup で構築済み）
 
-- `uv`（Python パッケージ管理）未導入時のリモートインストーラ実行
-- 依存パッケージのインストール（初回は**数百 MB** のダウンロード）
-- OCR / 画像内表検出モデルの初回ダウンロード（**数十 MB**、抽出の実行時）
+コマンドは共有 venv の console script（`specdb` / `docextract`）を使う。
+venv を activate していない環境では `.venv/Scripts/<コマンド>`（Windows）/
+`.venv/bin/<コマンド>` の形で呼ぶ。
 
-ユーザ承認が取れたら、**その実行に限り** 環境変数 `DOCEXTRACT_AUTOINSTALL=1` を付けて起動する
-（bash 例。PowerShell では先に `$env:DOCEXTRACT_AUTOINSTALL=1` を設定）:
-```
-DOCEXTRACT_AUTOINSTALL=1 python .github/skills/docextract/scripts/run_docextract.py --dir <フォルダ> -r
-```
-完全オフライン運用や承認が得られない場合は、自動実行せず**手動セットアップ手順を案内して停止**する。
-`DOCEXTRACT_NO_UV_AUTOINSTALL=1` は「絶対に自動実行しない」を意味し最優先で尊重される。
+環境は **@skill-setup エージェントが事前に構築している前提**。コマンドが
+見つからない・venv が無い場合は、自分で外部取得・インストールを実行せず
+**@skill-setup に環境構築を依頼する**（外部取得・依存インストールの承認フローは
+skill-setup が担う）。状態だけ確認するなら `python .github/skills/docextract setup --check`
+（無変更・承認不要）。なお OCR / 画像内表検出モデル（数十 MB）は抽出の実行時に
+初回ダウンロードされる。`DOCEXTRACT_NO_UV_AUTOINSTALL=1` が設定された環境では
+自動実行せず、手動セットアップ手順を案内して停止する。
 
 ## 手順
 1. **横断検索** — 問いをキーワードに分解して検索する。**空白区切りの複数キーワードは
    AND**（全語を含む要素だけヒット）なので、まず「対象 + 観点」の 2 語で絞るのが基本:
    ```
-   python .github/skills/docextract/scripts/run_docagent.py search "帳票 出力条件" --json
+   docextract docagent search "帳票 出力条件" --json
    ```
    各ヒットには `doc_id`・`location`（page/slide/sheet/order）・関連度 `score`・一致箇所の
    抜粋が付き、**関連度順**に並ぶ。全角/半角・大文字小文字・改行や空白の揺れは検索側で
@@ -51,9 +47,9 @@ DOCEXTRACT_AUTOINSTALL=1 python .github/skills/docextract/scripts/run_docextract
 
 2. **裏取り** — 必要に応じて該当文書を深掘りする:
    ```
-   python .github/skills/docextract/scripts/run_docagent.py get <id> --json     # 文書メタ・文書種別
-   python .github/skills/docextract/scripts/run_docagent.py text <id>           # 本文（座標なし・既定 20000 字窓）
-   python .github/skills/docextract/scripts/run_docagent.py facts --doc <id>    # 抽出済みの仕様ファクト
+   docextract docagent get <id> --json     # 文書メタ・文書種別
+   docextract docagent text <id>           # 本文（座標なし・既定 20000 字窓）
+   docextract docagent facts --doc <id>    # 抽出済みの仕様ファクト
    ```
    `text` は既定で先頭 20000 字の窓を返し、`truncated`/`next_offset` で続きの有無を示す。
    足りなければ `text <id> --offset <next_offset>` でページングする（全文が要るときだけ

@@ -7,11 +7,12 @@
   description: >-
     1 文書の抽出結果。文書 ID・内容ハッシュ・メタデータ・要素一覧
     （text / table / image、各要素に形式ごとの location）を持つ。
-  status: approved
+  status: review
   source:
     doc: README.md
-    location: { section: "出力 JSON の形式" }
-    evidence: "\"elements\": [ { \"type\": \"text\", … \"location\": { \"order\": 1 } } …]"
+    location: {section: 出力 JSON の形式}
+    evidence: >-
+      "elements": [ … { "type": "text", "content": "月次報告書", … "location": { "order": 1 } }
 
 - id: ar-manifest
   name: 抽出マニフェスト
@@ -45,11 +46,12 @@
   description: >-
     出典付きの仕様/要件項目。各項目は doc_id + location + evidence（原文）を
     必ず持ち、statement は後工程がそのまま使える 1 文で書く。
-  status: approved
+  status: review
   source:
     doc: docagent/README.md
-    location: { section: "仕様ファクト JSON の構造" }
-    evidence: "\"statement\": \"ユーザは月次売上をCSVで出力できる\", \"evidence\": \"月次売上はCSVエクスポート可能\""
+    location: {section: 仕様ファクト JSON の構造}
+    evidence: >-
+      "statement": "ユーザは月次売上をCSVで出力できる" … "evidence": "月次売上はCSVエクスポート可能"
 
 - id: ar-specdata
   name: 仕様データ（正本）
@@ -83,10 +85,21 @@
   path: dist/docextract-skill.zip
   format: ZIP
   description: >-
-    スキル・エージェント定義・パッケージメタをまとめた配布物。展開先
-    リポジトリのルートに解凍するだけで導入が完了する。
-  status: approved
+    スキル・エージェント定義・パッケージメタ・配布物設計データ（.specdb）をまとめた配布物。展開先リポジトリのルートに解凍するだけで導入が完了し、venv コマンド（specdb / docextract）は初回 bootstrap 時に共有 venv へ install される。
+  status: review
   source:
     doc: README.md
     location: { section: "スキルとしての配布" }
     evidence: "dist/docextract-skill.zip 上記をまとめた配布物 (展開先リポジトリのルートに解凍するだけで導入完了)"
+
+- id: ar-sync-config
+  name: 同期チェック規則
+  path: .specdb/sync.yaml
+  format: YAML
+  description: >-
+    sync_check.py が使う実装と正本の突合規則。リポジトリパスを持つ属性（path_attributes）、実在検査の対象（check_exists）、実体の棚卸し規則（inventory: glob と突合キー）を宣言する。
+  status: review
+  source:
+    doc: .specdb/sync.yaml
+    location: {section: 冒頭}
+    evidence: 同期チェック (sync_check.py) の設定 — 実装と正本の突合規則

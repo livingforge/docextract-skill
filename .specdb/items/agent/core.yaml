@@ -60,3 +60,15 @@
     doc: docagent/README.md
     location: { section: "3 つのカスタムエージェント" }
     evidence: "抽出済み資料を横断検索し、必ず出典付きで問いに答える（無ければ「該当なし」）"
+
+- id: ag-skill-setup
+  name: skill-setup
+  phase: 環境構築
+  description: >-
+    docextract / specdb スキルを動かす共有環境を構築・検証するセットアップエージェント。共有 venv（uv）・両スキルの依存・venv コマンド（specdb / docextract）を setup コマンド経由で用意し、他のエージェント・スキルの利用前に必ず実行される。構築は冪等で、外部取得・インストールなどの高リスク操作は利用者の承認を得てから行う（fail-closed）。
+  output_policy: 状態確認（setup --check）の結果と、使えるようになったコマンドの報告のみ
+  status: review
+  source:
+    doc: src/agents/skill-setup/body.md
+    location: {section: 冒頭}
+    evidence: あなたはスキル実行環境のセットアップ担当。docextract / specdb スキルを動かす

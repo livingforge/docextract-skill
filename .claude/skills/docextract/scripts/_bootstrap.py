@@ -250,6 +250,89 @@ def _requirements_hash(requirements: Path) -> str:
     return hashlib.sha256(requirements.read_bytes()).hexdigest()
 
 
+def _ensure_venv(uv: str, venv: Path, venv_python: Path, boot_log: Path) -> None:
+    """共有 venv が無ければ承認ゲートを通して作成する。"""
+    if venv_python.exists():
+        return
+    # uv venv は要求バージョンが無ければ Python 本体をダウンロードしうる。
+    _gate(
+        f"共有仮想環境を作成 (必要なら Python 3.10+ を uv が調達): {venv}",
+        [f"uv venv --python >=3.10 {venv}"],
+        note="Python 本体が未導入の場合は uv がダウンロードします。",
+    )
+    _run_step(
+        [uv, "venv", "--python", ">=3.10", str(venv)],
+        boot_log,
+        "共有仮想環境の作成",
+    )
+
+
+def _ensure_requirements(uv: str, venv: Path, venv_python: Path,
+                         requirements: Path, skill: str, boot_log: Path,
+                         note: str) -> None:
+    """requirements(.lock) を marker 比較のうえ共有 venv へインストールする。
+
+    依存記述が前回と同じなら再インストールしない (使うファイル自体をハッシュ)。
+    """
+    req_source = _install_source(requirements)
+    marker = venv / f".{skill}.reqhash"
+    want = _requirements_hash(req_source)
+    have = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+    if have == want:
+        return
+    if req_source.name == "requirements.lock":
+        note += " ロックファイル (ハッシュ固定) からインストールします。"
+    # 依存インストール。承認ゲートで具体コマンドと規模を提示する。
+    _gate(
+        f"{skill} の依存パッケージを共有仮想環境へインストール",
+        [f"uv pip install --python {venv_python} -r {req_source}"],
+        note=note,
+    )
+    _run_step(
+        [uv, "pip", "install", "--python", str(venv_python),
+         "-r", str(req_source)],
+        boot_log,
+        f"{skill} 依存パッケージのインストール",
+    )
+    marker.write_text(want, encoding="utf-8")
+
+
+def _launcher_hash(launcher_dir: Path) -> str:
+    h = hashlib.sha256()
+    for name in ("pyproject.toml", "skill_launcher.py"):
+        h.update((launcher_dir / name).read_bytes())
+    return h.hexdigest()
+
+
+def _ensure_launcher(uv: str, venv: Path, venv_python: Path,
+                     launcher_dir: Path, boot_log: Path) -> None:
+    """venv コマンド (specdb / docextract) を提供する探索係パッケージを install する。
+
+    launcher/ はスキル scripts/ に同梱される数十行のローカルパッケージで、
+    install されるのは「cwd から上方探索して展開済みスキルへ委譲する」コマンド
+    だけ。スキル本体は install しないので、zip 再展開での更新に追従できる。
+    内容ハッシュを marker に記録し、変化が無ければ再インストールしない。
+    """
+    if not (launcher_dir / "pyproject.toml").is_file():
+        return  # 同梱されていない構成では何もしない
+    marker = venv / ".skill-launcher.hash"
+    want = _launcher_hash(launcher_dir)
+    have = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+    if have == want:
+        return
+    _gate(
+        "スキル起動コマンド (specdb / docextract) を共有仮想環境へインストール",
+        [f"uv pip install --python {venv_python} {launcher_dir}"],
+        note="同梱のローカルパッケージのみ (大きな依存のダウンロードはありません)。",
+    )
+    _run_step(
+        [uv, "pip", "install", "--python", str(venv_python), str(launcher_dir)],
+        boot_log,
+        "スキル起動コマンドのインストール",
+    )
+    marker.write_text(want, encoding="utf-8")
+
+
 def ensure_env(script: Path, requirements: Path, skill: str = "docextract") -> None:
     """共有 venv を用意し、その python で ``script`` を実行し直す。
 
@@ -277,43 +360,15 @@ def ensure_env(script: Path, requirements: Path, skill: str = "docextract") -> N
     # セットアップの冗長な出力 (Python 本体・依存の DL 進捗) を退避するログ先。
     boot_log = _bootstrap_log_path(venv.parent)
 
-    if not venv_python.exists():
-        # uv venv は要求バージョンが無ければ Python 本体をダウンロードしうる。
-        _gate(
-            f"共有仮想環境を作成 (必要なら Python 3.10+ を uv が調達): {venv}",
-            [f"uv venv --python >=3.10 {venv}"],
-            note="Python 本体が未導入の場合は uv がダウンロードします。",
-        )
-        _run_step(
-            [uv, "venv", "--python", ">=3.10", str(venv)],
-            boot_log,
-            "共有仮想環境の作成",
-        )
+    _ensure_venv(uv, venv, venv_python, boot_log)
+    _ensure_requirements(
+        uv, venv, venv_python, requirements, skill, boot_log,
+        note="初回は数百 MB のダウンロードが発生します"
+             " (OCR/表検出モデルは実行時に別途取得)。",
+    )
 
-    # ロックファイルがあればそれを使う (ハッシュ固定 = 再現性・改竄検知)。
-    req_source = _install_source(requirements)
-    # 依存記述が前回と同じなら再インストールしない (使うファイル自体をハッシュ)。
-    marker = venv / f".{skill}.reqhash"
-    want = _requirements_hash(req_source)
-    have = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
-    if have != want:
-        locked = req_source.name == "requirements.lock"
-        note = "初回は数百 MB のダウンロードが発生します (OCR/表検出モデルは実行時に別途取得)。"
-        if locked:
-            note += " ロックファイル (ハッシュ固定) からインストールします。"
-        # 数百 MB の依存インストール。承認ゲートで具体コマンドと規模を提示する。
-        _gate(
-            f"{skill} の依存パッケージを共有仮想環境へインストール",
-            [f"uv pip install --python {venv_python} -r {req_source}"],
-            note=note,
-        )
-        _run_step(
-            [uv, "pip", "install", "--python", str(venv_python),
-             "-r", str(req_source)],
-            boot_log,
-            f"{skill} 依存パッケージのインストール",
-        )
-        marker.write_text(want, encoding="utf-8")
+    # venv コマンド (specdb / docextract) の探索係を install する。
+    _ensure_launcher(uv, venv, venv_python, script.parent / "launcher", boot_log)
 
     # 共有 venv の python で本体を実行し直す。os.exec* は Windows で呼び出し元が
     # 完了を待たない挙動になるため、subprocess で待ち合わせて終了コードを引き継ぐ。

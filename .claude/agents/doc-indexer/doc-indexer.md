@@ -21,27 +21,23 @@ PowerPoint/PDF）の集まりを一括で抽出し、後工程（仕様の洗い
 このエージェントが実行してよいのは次の固定サブコマンド群だけ。任意のシェル操作・
 ファイル改変・ネットワークコマンドは実行しない（`runCommands`/`Bash` は付与されているが
 用途をここに限定する）。
-- `python .claude/skills/docextract/scripts/run_docextract.py --dir <フォルダ> [-r] [-o <出力先>] --quiet --json-summary`
-- `python .claude/skills/docextract/scripts/run_docagent.py {init|sync|doctypes|list|stats|set-doctype|text} ...`
+- `docextract extract --dir <フォルダ> [-r] [-o <出力先>] --quiet --json-summary`
+- `docextract docagent {init|sync|doctypes|list|stats|set-doctype|text} ...`
 - `Glob`（対象ファイルの探索）／`Read`（`index.json` など生成物の確認）
 
-## セットアップ（高リスク操作の事前承認ゲート）
-ランチャー（`run_docextract.py` / `run_docagent.py`）の初回実行では、次の**高リスク操作**
-（外部取得・インストール）が走りうる。これらは既定で**未承認なら停止**（fail-closed）する。
-実行前に必ず「実行される具体的コマンドとダウンロード規模」をユーザに提示し、**承認を得てから**
-実行すること。承認なしに自動実行してはならない。
+## 実行環境（前提: @skill-setup で構築済み）
 
-- `uv`（Python パッケージ管理）未導入時のリモートインストーラ実行
-- 依存パッケージのインストール（初回は**数百 MB** のダウンロード）
-- OCR / 画像内表検出モデルの初回ダウンロード（**数十 MB**、抽出の実行時）
+コマンドは共有 venv の console script（`specdb` / `docextract`）を使う。
+venv を activate していない環境では `.venv/Scripts/<コマンド>`（Windows）/
+`.venv/bin/<コマンド>` の形で呼ぶ。
 
-ユーザ承認が取れたら、**その実行に限り** 環境変数 `DOCEXTRACT_AUTOINSTALL=1` を付けて起動する
-（bash 例。PowerShell では先に `$env:DOCEXTRACT_AUTOINSTALL=1` を設定）:
-```
-DOCEXTRACT_AUTOINSTALL=1 python .claude/skills/docextract/scripts/run_docextract.py --dir <フォルダ> -r
-```
-完全オフライン運用や承認が得られない場合は、自動実行せず**手動セットアップ手順を案内して停止**する。
-`DOCEXTRACT_NO_UV_AUTOINSTALL=1` は「絶対に自動実行しない」を意味し最優先で尊重される。
+環境は **@skill-setup エージェントが事前に構築している前提**。コマンドが
+見つからない・venv が無い場合は、自分で外部取得・インストールを実行せず
+**@skill-setup に環境構築を依頼する**（外部取得・依存インストールの承認フローは
+skill-setup が担う）。状態だけ確認するなら `python .claude/skills/docextract setup --check`
+（無変更・承認不要）。なお OCR / 画像内表検出モデル（数十 MB）は抽出の実行時に
+初回ダウンロードされる。`DOCEXTRACT_NO_UV_AUTOINSTALL=1` が設定された環境では
+自動実行せず、手動セットアップ手順を案内して停止する。
 
 ## 手順
 1. **対象把握** — `Glob` で対象フォルダの `**/*.{docx,xlsx,xlsm,pptx,pdf}` を確認し、
@@ -53,11 +49,11 @@ DOCEXTRACT_AUTOINSTALL=1 python .claude/skills/docextract/scripts/run_docextract
    膨らみコンテキストを圧迫する）を抑制し、標準出力を機械可読な 1 行の「レシート」に
    絞るため:
    ```
-   python .claude/skills/docextract/scripts/run_docextract.py --dir <フォルダ> -r --quiet --json-summary
+   docextract extract --dir <フォルダ> -r --quiet --json-summary
    ```
-   - **初回はセットアップの高リスク操作（依存インストール数百 MB／OCR・表検出モデル取得数十 MB）
-     が走る。** 上の「セットアップ（事前承認ゲート）」に従い、内容と規模を提示して承認を得てから、
-     承認済みの実行に限り `DOCEXTRACT_AUTOINSTALL=1` を付けて起動する。承認なしに自動実行しない。
+   - **OCR / 画像内表検出モデル（数十 MB）の初回ダウンロードが走りうる。**
+     環境自体が未構築（コマンドが見つからない）なら、上の「実行環境」に従い
+     @skill-setup に構築を依頼する。承認なしに自動実行しない。
    - 文書ごとに `.docextract/output/<id>/result.json` が作られる。`<id>` は
      **ファイルパス由来で衝突しない**ため、別フォルダの同名ファイルも取り違えない。
    - 標準出力の最終 1 行が JSON サマリ（`{run_id, succeeded, failed, output_dir, index,
@@ -70,28 +66,28 @@ DOCEXTRACT_AUTOINSTALL=1 python .claude/skills/docextract/scripts/run_docextract
 
 3. **索引化** — 初回のみ `init`、その後 `sync` で抽出マニフェストの全文書を一括登録する:
    ```
-   python .claude/skills/docextract/scripts/run_docagent.py init      # 初回のみ（ストア類を用意）
-   python .claude/skills/docextract/scripts/run_docagent.py sync       # index.json の全文書を登録/更新
+   docextract docagent init      # 初回のみ（ストア類を用意）
+   docextract docagent sync       # index.json の全文書を登録/更新
    ```
    `sync` は「新規/更新/スキップ（result.json 不明）」の件数を返す。
 
 4. **文書種別の付与（現状把握）** — 使える種別を確認し、各文書に 1 つ付ける:
    ```
-   python .claude/skills/docextract/scripts/run_docagent.py doctypes --json   # 使える文書種別
-   python .claude/skills/docextract/scripts/run_docagent.py list --json       # 各文書の preview を得る
+   docextract docagent doctypes --json   # 使える文書種別
+   docextract docagent list --json       # 各文書の preview を得る
    ```
    `list --json` の各文書の `preview`（本文・表見出し・OCR の抜粋）から種別を判断し、
    1 文書ずつ付与する（要約はしない。preview で判断がつかないときだけ `text <id>` で本文を見る）:
    ```
-   python .claude/skills/docextract/scripts/run_docagent.py set-doctype <id> "<文書種別>"
+   docextract docagent set-doctype <id> "<文書種別>"
    ```
    - 種別が定義外だと拒否される。拒否されたら `doctypes` の一覧から選び直す。
    - `preview` から判断できない文書は無理に決めず「その他」または未設定のままにし、その旨を報告する。
 
 5. **確認・提示** — 索引の全体像を実際に確認してからまとめる:
    ```
-   python .claude/skills/docextract/scripts/run_docagent.py stats            # 文書種別別の件数
-   python .claude/skills/docextract/scripts/run_docagent.py list --json
+   docextract docagent stats            # 文書種別別の件数
+   docextract docagent list --json
    ```
    さらにマニフェスト `.docextract/output/index.json` を `Read` し、同一 `content_hash` を
    持つ文書（内容重複）を洗い出す。

@@ -17,11 +17,18 @@
 ## 使い方
 
 ```bash
-python .claude/skills/specdb/scripts/engine.py      # 検証（error で exit 1）
-python .claude/skills/specdb/scripts/generate.py    # 設計書を out/ に生成
-python .claude/skills/specdb/scripts/visualize.py   # 対話型グラフ out/specdb.html
-python .claude/skills/specdb/scripts/diff.py <tag>  # ベースライン差分
+specdb engine      # 検証（error で exit 1）
+specdb generate    # 設計書を out/ に生成
+specdb visualize   # 対話型グラフ out/specdb.html
+specdb diff <tag>  # ベースライン差分
 ```
+
+`specdb` は共有 venv の console script（bootstrap が install。venv 未 activate
+なら `.venv/Scripts/specdb`）。cwd から上方探索して展開済みスキルへ委譲する
+ので、プロジェクト配下ならどこからでも実行でき、`--root` 未指定なら
+プロジェクトの `.specdb` を自動補完する。venv 準備前のフォールバックは
+`python .claude/skills/specdb engine`（GitHub Copilot 環境では `.github` に
+読み替え、同一内容）。サブコマンド一覧は `specdb --help`。
 
 生成される設計書:
 

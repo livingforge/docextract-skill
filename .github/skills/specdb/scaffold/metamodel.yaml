@@ -19,6 +19,11 @@
 #   ordered: true — 並びに意味がある関係。記述順が保存され、明示したい場合は
 #   関係に order 属性（int）を書ける（クエリ時に order 順で返る）。
 #
+# 機械採番の宣言（mutate.py が使う。エンジンの検証には影響しない）:
+#   id_prefix — その種別の ID 接頭辞。add-item が接頭辞を強制し、
+#               スラッグ省略時は既存の「接頭辞+数字」ID から次番を採る
+#   sequence  — 連番属性の自動採番 { attribute: 属性名, format: "F-{:02d}" }
+#
 # 名前空間（サブシステム分割。任意）:
 #   namespaces: { pay: 決済, charge: チャージ }
 #   と宣言すると items/<名前空間>/<種別>/ と relations/<名前空間>/ が使え、
@@ -32,6 +37,7 @@ item_types:
   data-item:
     label: データ項目
     label_field: name            # 一覧・生成物で表示名に使う属性
+    id_prefix: di-               # 機械採番 (mutate.py) が使う ID 接頭辞
     warn_if_unreferenced: true   # どの関係からも参照されなければ孤児として警告
     attributes:
       name:        { kind: string, required: true }
@@ -43,6 +49,7 @@ item_types:
   entity:
     label: エンティティ
     label_field: name
+    id_prefix: ent-
     attributes:
       name:          { kind: string, required: true }
       physical_name: { kind: string, required: true, unique: true }
@@ -51,12 +58,14 @@ item_types:
   business-rule:
     label: 業務ルール
     label_field: statement
+    id_prefix: br-
     attributes:
       statement: { kind: string, required: true }
 
   screen:                        # ← エンジン改修なしで追加した種別（汎用性の実証）
     label: 画面
     label_field: name
+    id_prefix: scr-
     attributes:
       name:        { kind: string, required: true }
       screen_id:   { kind: string, required: true, unique: true }

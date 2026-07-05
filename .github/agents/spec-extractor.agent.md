@@ -19,36 +19,32 @@ tools: ['runCommands', 'search']
 ### 許可コマンド（最小権限。これ以外は実行しない）
 実行してよいのは次の固定サブコマンド群だけ。任意のシェル操作・ファイル改変・ネットワーク
 コマンドは実行しない（`runCommands`/`Bash` の用途をここに限定する）。
-- `python .github/skills/docextract/scripts/run_docagent.py {item-types|prep|text|search|fact-add} ...`
+- `docextract docagent {item-types|prep|text|search|fact-add} ...`
 - `Read`（`.docextract/output/<id>/result.json` の厳密確認が要るときのみ）
 
-## セットアップ（高リスク操作の事前承認ゲート）
-ランチャー（`run_docextract.py` / `run_docagent.py`）の初回実行では、次の**高リスク操作**
-（外部取得・インストール）が走りうる。これらは既定で**未承認なら停止**（fail-closed）する。
-実行前に必ず「実行される具体的コマンドとダウンロード規模」をユーザに提示し、**承認を得てから**
-実行すること。承認なしに自動実行してはならない。
+## 実行環境（前提: @skill-setup で構築済み）
 
-- `uv`（Python パッケージ管理）未導入時のリモートインストーラ実行
-- 依存パッケージのインストール（初回は**数百 MB** のダウンロード）
-- OCR / 画像内表検出モデルの初回ダウンロード（**数十 MB**、抽出の実行時）
+コマンドは共有 venv の console script（`specdb` / `docextract`）を使う。
+venv を activate していない環境では `.venv/Scripts/<コマンド>`（Windows）/
+`.venv/bin/<コマンド>` の形で呼ぶ。
 
-ユーザ承認が取れたら、**その実行に限り** 環境変数 `DOCEXTRACT_AUTOINSTALL=1` を付けて起動する
-（bash 例。PowerShell では先に `$env:DOCEXTRACT_AUTOINSTALL=1` を設定）:
-```
-DOCEXTRACT_AUTOINSTALL=1 python .github/skills/docextract/scripts/run_docextract.py --dir <フォルダ> -r
-```
-完全オフライン運用や承認が得られない場合は、自動実行せず**手動セットアップ手順を案内して停止**する。
-`DOCEXTRACT_NO_UV_AUTOINSTALL=1` は「絶対に自動実行しない」を意味し最優先で尊重される。
+環境は **@skill-setup エージェントが事前に構築している前提**。コマンドが
+見つからない・venv が無い場合は、自分で外部取得・インストールを実行せず
+**@skill-setup に環境構築を依頼する**（外部取得・依存インストールの承認フローは
+skill-setup が担う）。状態だけ確認するなら `python .github/skills/docextract setup --check`
+（無変更・承認不要）。なお OCR / 画像内表検出モデル（数十 MB）は抽出の実行時に
+初回ダウンロードされる。`DOCEXTRACT_NO_UV_AUTOINSTALL=1` が設定された環境では
+自動実行せず、手動セットアップ手順を案内して停止する。
 
 ## 手順（1 文書につき）
 1. **種別を把握** — 使えるファクト種別を確認する:
    ```
-   python .github/skills/docextract/scripts/run_docagent.py item-types --json
+   docextract docagent item-types --json
    ```
 
 2. **本文を取得** — 登録と本文抜粋を 1 コマンドで:
    ```
-   python .github/skills/docextract/scripts/run_docagent.py prep <ID または result.json パス> --json
+   docextract docagent prep <ID または result.json パス> --json
    ```
    抜粋で足りないときだけ `... text <id>`（既定 20000 字窓。`truncated`/`next_offset` が
    続きを示すので `--offset <next_offset>` でページング、全文が要る大文書のみ `--max-chars 0`）。
@@ -71,9 +67,9 @@ DOCEXTRACT_AUTOINSTALL=1 python .github/skills/docextract/scripts/run_docextract
    位置は自分で組み立てず、`search` が返す `location` を使う（グラウンディング）:
    ```
    # (a) 原文の一部で location を特定する
-   python .github/skills/docextract/scripts/run_docagent.py search "<原文の一部>" --doc <id> --json
+   docextract docagent search "<原文の一部>" --doc <id> --json
    # (b) 得た location を付けて保存する
-   python .github/skills/docextract/scripts/run_docagent.py fact-add --doc <id> --type "<種別>" \
+   docextract docagent fact-add --doc <id> --type "<種別>" \
        --statement "<機械可読な1文>" --evidence "<原文抜粋>" \
        --location '<search が返した location（例: {"page": 3}）>' \
        --keywords "<語1,語2>" --confidence high

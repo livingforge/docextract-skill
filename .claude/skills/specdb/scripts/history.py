@@ -5,6 +5,7 @@
     python specdb/history.py --id fn-visualize   # アイテム単位の変遷
     python specdb/history.py --json              # 機械可読 (JSON)
     python specdb/history.py --limit 5           # 直近 5 コミットぶん
+    python specdb/history.py --uncommitted       # 未コミット分だけ (spec-sync の報告用)
     python history.py --root <データディレクトリ> …  # ツールとデータを分離して使う場合
 
 仕様データ (metamodel.yaml / items/ / relations/) を触った各コミットについて、
@@ -217,6 +218,7 @@ def main() -> int:
     item_id = None
     limit = None
     as_json = False
+    uncommitted = False
     i = 0
     while i < len(args):
         if args[i] == "--id" and i + 1 < len(args):
@@ -225,10 +227,14 @@ def main() -> int:
             limit = int(args[i + 1]); i += 2
         elif args[i] == "--json":
             as_json = True; i += 1
+        elif args[i] == "--uncommitted":
+            uncommitted = True; i += 1
         else:
             print(__doc__.strip(), file=sys.stderr)
             return 2
     entries = collect_history(data_root, item_id=item_id, limit=limit)
+    if uncommitted:
+        entries = [e for e in entries if e["rev"] is None]
     if as_json:
         sys.stdout.write(json.dumps(entries, ensure_ascii=False, indent=2) + "\n")
     else:

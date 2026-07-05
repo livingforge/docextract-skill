@@ -7,6 +7,10 @@
 # 語彙: 構成要素（スキル・エージェント・ソースモジュール）が「機能」を実現し、
 #       「データ成果物」を生成・入力し、「設計方針」に従い、
 #       「外部ライブラリ」に依存する。
+#
+# 機械採番の宣言（mutate.py が使う。エンジンの検証には影響しない）:
+#   id_prefix — その種別の ID 接頭辞（add-item が接頭辞を強制する）
+#   sequence  — 連番属性の自動採番 { attribute: 属性名, format: "F-{:02d}" }
 
 version: 1
 
@@ -15,6 +19,7 @@ item_types:
   skill:
     label: スキル
     label_field: name
+    id_prefix: sk-
     attributes:
       name:    { kind: string, required: true, unique: true }
       purpose: { kind: string, required: true }
@@ -23,6 +28,7 @@ item_types:
   agent:
     label: エージェント
     label_field: name
+    id_prefix: ag-
     attributes:
       name:          { kind: string, required: true, unique: true }
       phase:         { kind: string, required: true }   # 担当する工程
@@ -32,6 +38,7 @@ item_types:
   module:
     label: ソースモジュール
     label_field: name
+    id_prefix: mod-
     attributes:
       name:        { kind: string, required: true, unique: true }
       path:        { kind: string, required: true, unique: true }
@@ -40,6 +47,8 @@ item_types:
   function:
     label: 機能
     label_field: name
+    id_prefix: fn-
+    sequence: { attribute: func_id, format: "F-{:02d}" }
     warn_if_unreferenced: true    # どの構成要素にも実現されない機能は孤児
     attributes:
       func_id:     { kind: string, required: true, unique: true }
@@ -50,6 +59,7 @@ item_types:
   artifact:
     label: データ成果物
     label_field: name
+    id_prefix: ar-
     warn_if_unreferenced: true    # 誰も生成も入力もしない成果物は孤児
     attributes:
       name:        { kind: string, required: true, unique: true }
@@ -60,6 +70,7 @@ item_types:
   file-format:
     label: 対応文書形式
     label_field: name
+    id_prefix: fmt-
     warn_if_unreferenced: true
     attributes:
       name:          { kind: string, required: true, unique: true }
@@ -70,6 +81,8 @@ item_types:
   design-rule:
     label: 設計方針
     label_field: name
+    id_prefix: dr-
+    sequence: { attribute: rule_id, format: "DR-{:02d}" }
     warn_if_unreferenced: true    # どの構成要素も従わない方針は孤児
     attributes:
       rule_id:   { kind: string, required: true, unique: true }
@@ -79,6 +92,7 @@ item_types:
   library:
     label: 外部ライブラリ
     label_field: name
+    id_prefix: lib-
     warn_if_unreferenced: true    # どのモジュールも依存しないライブラリは孤児
     attributes:
       name:    { kind: string, required: true, unique: true }
