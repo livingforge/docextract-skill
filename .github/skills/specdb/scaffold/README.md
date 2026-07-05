@@ -179,6 +179,24 @@ L2 はパックの `conformance/rules.yaml` が宣言する規則:
 禁止 = STD-E221）。`pack.lock` は継承チェーンの版・内容ハッシュを固定し、
 `--frozen` でパック差し替えの混入を CI が検出できる（不一致 = STD-W003）。
 
+### 横断集計とパックのリリースチェック
+
+```bash
+specdb aggregate <root1> <root2> ...   # 複数プロジェクトの横断集計台帳（Markdown）
+specdb aggregate <root...> --out 台帳.md --type data-item
+specdb pack check <パックdir>           # パックの block 規約リリースチェック
+```
+
+`aggregate` は標準パックを共有する複数プロジェクトを横串で読み、種別ごとの
+共通台帳（共通データ項目辞書・システム間IF台帳）と、**extensible enum の全社
+集計**を出す。標準宣言に無い値は「その他」に丸め、元値の内訳を次期標準への
+昇格候補として付録に掲出する（設計メモ §6.1）。同名アイテムの属性ゆらぎ
+（例: 同じデータ項目名で桁数が違う）は「要確認」として指摘する。
+
+`pack check` はパック開発側のリリースチェックで、文書テンプレートが block 規約
+（cover / revision_history / toc / preface / chapters / appendix）を満たすかを
+検査する（一部だけ定義するテンプレートは STD-W401）。
+
 ### 同梱パック jp-sier-std
 
 日本 SIer 向けの実パックを `specdb/packs/jp-sier-std/` に同梱している
