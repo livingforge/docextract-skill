@@ -13,9 +13,8 @@
 {% set ditems = store.items_of('data-item') %}
 {% set rules = store.items_of('business-rule') %}
 {{ ex.page_start(doc.title) }}
-{{ ex.cover(doc.title, doc.doc_no, doc.version, generated_at[:10], 'specdb（自動生成）',
-            '本書は仕様データから自動生成されたビューです。直接編集しないでください。') }}
 
+{# 表紙は設けない。1 シート目を改訂履歴とする #}
 {% call ex.sheet('改訂履歴', doc.title, doc.doc_no, doc.version) %}
 {# 改訂履歴はデータの実履歴 (generate.py が Git から再構成した data_history) から
    自動で埋まる。Git 管理外などで履歴が無い場合のみ従来の 1 行にフォールバック #}

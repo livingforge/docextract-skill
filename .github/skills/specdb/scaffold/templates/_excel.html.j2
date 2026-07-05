@@ -54,9 +54,11 @@
   td.c, th.c { text-align: center; }
   td.num { text-align: right; }
 
-  /* シート先頭のヘッダー枠（文書名・シート名・文書番号・版） */
-  table.sheet-head { margin-bottom: 14px; }
-  table.sheet-head th { width: 76px; background: #c6d9b0; }
+  /* シート先頭のヘッダー枠（文書名・シート名・文書番号・版）。
+     table-layout: fixed + 各セルの %幅で、内容に依らず全シートで横幅比率を固定する */
+  table.sheet-head { margin-bottom: 14px; table-layout: fixed; }
+  table.sheet-head th { background: #c6d9b0; }
+  table.sheet-head td { overflow: hidden; text-overflow: ellipsis; }
 
   /* 章番号つき見出し */
   h2.sec { font-size: 14px; margin: 16px 0 6px; padding: 3px 10px;
@@ -250,12 +252,13 @@
 {% macro sheet(name, doc_title='', doc_no='', version='') %}
 <section class="sheet" data-name="{{ name }}">
   {% if doc_title %}
+  {# 横幅比率は全シート固定（合計 100%）。table-layout: fixed が %幅を厳守する #}
   <table class="xl sheet-head">
     <tr>
-      <th>文書名</th><td>{{ doc_title }}</td>
-      <th>シート</th><td>{{ name }}</td>
-      {% if doc_no %}<th>文書番号</th><td>{{ doc_no }}</td>{% endif %}
-      {% if version %}<th>版</th><td class="c">{{ version }}</td>{% endif %}
+      <th style="width:7%">文書名</th><td style="width:40%">{{ doc_title }}</td>
+      <th style="width:7%">シート</th><td style="width:19%">{{ name }}</td>
+      {% if doc_no %}<th style="width:8%">文書番号</th><td style="width:11%">{{ doc_no }}</td>{% endif %}
+      {% if version %}<th style="width:4%">版</th><td class="c" style="width:4%">{{ version }}</td>{% endif %}
     </tr>
   </table>
   {% endif %}

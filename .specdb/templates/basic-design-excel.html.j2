@@ -21,9 +21,8 @@
 {% set dex = store.items['sk-docextract'] %}
 {% set sdb = store.items['sk-specdb'] %}
 {{ ex.page_start(doc.title) }}
-{{ ex.cover(doc.title, doc.doc_no, doc.version, generated_at[:10], 'specdb（自動生成）',
-            '本書は仕様データから自動生成されたビューです。直接編集しないでください。') }}
 
+{# 表紙は設けない。1 シート目を改訂履歴とする #}
 {% call ex.sheet('改訂履歴', doc.title, doc.doc_no, doc.version) %}
 {# 改訂履歴はデータの実履歴 (generate.py が Git から再構成した data_history) から
    自動で埋まる。Git 管理外などで履歴が無い場合のみ従来の 1 行にフォールバック #}
@@ -126,7 +125,8 @@
     <th style="width:9%">分類</th><th>機能概要</th>
     <th style="width:20%">実現する構成要素</th><th style="width:8%">状態</th>
   </tr>
-  {% for f in functions %}
+  {# 機能IDの昇順で並べる（F-01, F-02, … とゼロ埋め2桁なので文字列昇順で数値順） #}
+  {% for f in functions|sort(attribute='attrs.func_id') %}
   <tr>
     <td class="c">{{ f.attrs.func_id }}</td>
     <td>{{ f.attrs.name }}</td>
@@ -168,10 +168,12 @@
 {% for rel in store.relations_of('realizes', src='mod-docextract') %}
   {% if rel.dst not in dexfn %}{% set _ = dexfn.append(rel.dst) %}{% endif %}
 {% endfor %}
+{# スキル・モジュール双方の realizes を集約したうえで機能ID昇順に並べる #}
+{% set dexfns = [] %}
+{% for fid in dexfn %}{% set _ = dexfns.append(store.items[fid]) %}{% endfor %}
 <table class="xl">
   <tr><th style="width:7%">機能ID</th><th style="width:22%">機能名</th><th>機能概要</th><th style="width:8%">状態</th></tr>
-  {% for fid in dexfn %}
-  {% set f = store.items[fid] %}
+  {% for f in dexfns|sort(attribute='attrs.func_id') %}
   <tr>
     <td class="c">{{ f.attrs.func_id }}</td><td>{{ f.attrs.name }}</td>
     <td>{{ f.attrs.description }}</td>
@@ -215,10 +217,12 @@
 {{ ex.kv([('名称', sdb.attrs.name), ('目的', sdb.attrs.purpose),
           ('実行環境', sdb.attrs.runtime), ('状態', sdb.status|status)]) }}
 {{ ex.subsec('5.1', '機能') }}
+{# 機能ID昇順で並べる #}
+{% set sdbfns = [] %}
+{% for rel in store.relations_of('realizes', src=sdb.id) %}{% set _ = sdbfns.append(store.items[rel.dst]) %}{% endfor %}
 <table class="xl">
   <tr><th style="width:7%">機能ID</th><th style="width:22%">機能名</th><th>機能概要</th><th style="width:8%">状態</th></tr>
-  {% for rel in store.relations_of('realizes', src=sdb.id) %}
-  {% set f = store.items[rel.dst] %}
+  {% for f in sdbfns|sort(attribute='attrs.func_id') %}
   <tr>
     <td class="c">{{ f.attrs.func_id }}</td><td>{{ f.attrs.name }}</td>
     <td>{{ f.attrs.description }}</td>
