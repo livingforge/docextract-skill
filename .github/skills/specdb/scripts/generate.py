@@ -16,9 +16,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
-from jinja2 import Environment, FileSystemLoader, StrictUndefined, Undefined
+from jinja2 import (ChoiceLoader, Environment, FileSystemLoader, PrefixLoader,
+                    StrictUndefined, Undefined)
 
+import standard
 from engine import ROOT, Store, parse_root
 
 STATUS_LABEL = {"draft": "起票", "review": "レビュー中",
@@ -55,8 +56,19 @@ def git_rev(root: Path) -> str:
         return "unknown"
 
 
-def make_env(store: Store, templates_dir: Path) -> Environment:
-    env = Environment(loader=FileSystemLoader(templates_dir),
+def make_env(store: Store, template_dirs: Path | list[Path],
+             prefixes: dict[str, Path] | None = None) -> Environment:
+    """テンプレート環境を作る。
+
+    template_dirs はリストなら多層検索（先頭が優先 = プロジェクト → パック層）。
+    prefixes は親層版の明示参照（{% extends "std/…" %} 用。standard.prefix_map）。
+    """
+    dirs = [template_dirs] if isinstance(template_dirs, Path) else list(template_dirs)
+    loader = FileSystemLoader([str(d) for d in dirs])
+    if prefixes:
+        loader = ChoiceLoader([loader, PrefixLoader(
+            {k: FileSystemLoader(str(d)) for k, d in prefixes.items()})])
+    env = Environment(loader=loader,
                       trim_blocks=True, lstrip_blocks=True,
                       # HTML 文書ではアイテム値の < & " を自動エスケープする
                       # （Markdown 等それ以外のテンプレートには影響しない）
@@ -72,25 +84,30 @@ def make_env(store: Store, templates_dir: Path) -> Environment:
 def main() -> int:
     root, args = parse_root(sys.argv[1:])
     only = args[0] if args else None
-    docs_dir, templates_dir, out_dir = root / "documents", root / "templates", root / "out"
+    out_dir = root / "out"
 
     store = Store.load(root)
+    # 標準パック: 継承チェーンを解決し、テンプレート多層検索と文書カタログに使う。
+    # extends が無ければ packs は空で従来動作のまま。
+    packs = standard.resolve_chain(root, store.problems)
+    standard.check_template_overrides(root, packs, store.problems)
+    defs = standard.collect_documents(root, packs, store.problems)
     for p in store.problems:
         print(p, file=sys.stderr)
     if store.has_errors():
         print("検証エラーのため生成を中止しました。", file=sys.stderr)
         return 1
 
-    defs = sorted(docs_dir.glob("*.yaml"))
     if only:
-        defs = [d for d in defs if d.stem == only]
+        all_names = [name for name, _ in defs]
+        defs = [d for d in defs if d[0] == only]
         if not defs:
-            print(f"文書定義 '{only}' が見つからない。候補: "
-                  f"{', '.join(p.stem for p in sorted(docs_dir.glob('*.yaml')))}",
+            print(f"文書定義 '{only}' が見つからない。候補: {', '.join(all_names)}",
                   file=sys.stderr)
             return 1
 
-    env = make_env(store, templates_dir)
+    env = make_env(store, standard.template_search_dirs(root, packs),
+                   standard.prefix_map(packs))
     generated_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     rev = git_rev(root)
     # 変更履歴 (Git から意味的に再構成)。改訂履歴シート等が実履歴から埋まる。
@@ -103,9 +120,7 @@ def main() -> int:
         data_history = []
     out_dir.mkdir(exist_ok=True)
 
-    for deffile in defs:
-        with open(deffile, encoding="utf-8") as f:
-            doc = yaml.safe_load(f)
+    for _name, doc in defs:
         text = env.get_template(doc["template"]).render(
             doc=doc, store=store, mm=store.mm,
             generated_at=generated_at, data_rev=rev, data_history=data_history)

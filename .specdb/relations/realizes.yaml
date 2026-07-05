@@ -47,3 +47,5 @@
 - { type: realizes, from: mod-docsummary, to: fn-summarize, status: review }
 - { type: realizes, from: sk-docsummary, to: fn-llm-config, status: review }
 - { type: realizes, from: ag-skill-setup, to: fn-llm-config, status: review }
+- { type: realizes, from: sk-specdb, to: fn-standard-pack, status: review }
+- { type: realizes, from: mod-specdb, to: fn-standard-pack, status: review }

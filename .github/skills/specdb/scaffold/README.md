@@ -114,6 +114,43 @@ relation_types:
   `relations/pay/` が使え、配下の ID・参照には自動で `pay:` が付く。
   名前空間をまたぐ参照はフル ID（`pay:di-0001`）で書く
 
+## 標準パック（プロジェクト横断の様式標準化 — Phase 1）
+
+設計書様式・文書カタログをプロジェクト間で統一するための仕組み
+（設計の全体像は `.specdb/docs/standard-pack-design.md`。現状は Phase 1 =
+テンプレート多層検索 + 文書カタログの実装。メタモデルのマージ・準拠検証は
+Phase 2 以降）。
+
+```yaml
+# metamodel.yaml に 1 行足すとパックを継承する（無ければ完全に従来動作）
+extends: div-std@1.2        # 「パック名@major.minor」または相対パス（開発モード）
+```
+
+- パックは `pack.yaml`（pack / version / extends 等）+ `templates/` +
+  `documents/` を持つディレクトリ。パック自身も `extends` でき、
+  「全社 → 事業部 → プロジェクト」の単一親チェーンが組める
+- 解決順: `<データルート>/packs/<名前>/` → 環境変数 `SPECDB_PACK_PATH` →
+  ツール同梱 `packs/`。version の major.minor 不一致は error（STD-E002）、
+  循環は error（STD-E003）
+- **テンプレート**は「プロジェクト → 近い層 → 遠い層」の順で検索される。
+  同名の部分上書きは `{% extends "std/<名前>.j2" %}` + block 上書きが正の手段
+  （`std/` = 直近層、`std2/` = その親）。ハウススタイル部品（`_*.j2`）の
+  プロジェクト層での上書きは warn（STD-W301）、extends を使わない全置換も
+  warn（STD-W303）
+- **文書カタログ**: パックの documents/ は標準文書の雛形になる。
+  `abstract: true` の文書はプロジェクトが `from_standard:` で実体化するまで
+  生成されない。必須パラメータ欠落は error（STD-E202）、`doc_no` の
+  採番規則違反も error（STD-E203）。カタログ側の title / output に書いた
+  `{パラメータ名}` はマージ後の値で展開される
+
+```yaml
+# プロジェクト documents/basic-design.yaml — 標準文書の実体化は穴埋めだけ
+from_standard: basic-design
+system_name: 受発注システム
+doc_no: SD-ORD-001
+preface: { purpose: …, scope: … }
+```
+
 ## エンジンが行う汎用検証
 
 - メタモデル自体の整合性（未知の kind、未定義種別への from/to 参照、
@@ -136,7 +173,11 @@ error が 1 件でもあれば生成は中止され exit 1（CI で PR をブロ
    一意性制約（unique）~~（完了）
 5. ~~ベースライン（Git タグ）+ 差分ビュー（diff.py）、順序（ordered）、
    名前空間（namespaces）~~（完了）
-6. SQLite ビルド、検証プラグイン、docextract/spec-extractor からの
+6. ~~標準パック Phase 1（テンプレート多層検索 + std/ プレフィックス +
+   文書カタログ from_standard）~~（完了。standard.py）
+7. 標準パック Phase 2（メタモデルのマージ + L1 準拠検証 + pack.lock。
+   設計: .specdb/docs/standard-pack-design.md）
+8. SQLite ビルド、検証プラグイン、docextract/spec-extractor からの
    取り込みアダプタ、Word/Excel 出力、ReqIF エクスポート
 
 まだ表現できないもの（既知の限界）: 関係を対象にした関係（具体化）と 3 項以上の
