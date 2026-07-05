@@ -248,7 +248,7 @@
   func_id: F-19
   name: 統一エントリポイント（スキル CLI）
   description: >-
-    スキルのスクリプト操作を venv コマンド specdb / docextract / docsummary に統一する。共有 venv へは探索係パッケージ skill-launcher（scripts/launcher/、_bootstrap.py が install）が console script を登録し、任意のディレクトリから <スキル名> <サブコマンド> [オプション] で起動できる。コマンドは cwd から上方探索して展開済みスキル（スキル直下の転送ファイルと scripts/__main__.py のディスパッチャ。build_skill.py が生成）へ委譲するだけで、スキル本体は install しないため zip 再展開の更新に追従する。specdb は --root 未指定時にプロジェクトの .specdb を自動補完し、docsummary は docextract スキルの summarize サブコマンドへ委譲される。__init__.py を持つ同名の通常 Python パッケージは誤解決しない。venv 準備前のフォールバックとして python <スキルディレクトリ> <サブコマンド> と従来の python <ディレクトリ>/scripts/<ツール>.py も使える。
+    スキルのスクリプト操作を venv コマンド specdb / docextract / docsummary に統一する。共有 venv へは探索係パッケージ skill-launcher（scripts/launcher/、_bootstrap.py が install）が console script を登録し、任意のディレクトリから <スキル名> <サブコマンド> [オプション] で起動できる。コマンドは cwd から上方探索して展開済みスキル（スキル直下の転送ファイルと scripts/__main__.py のディスパッチャ。build_skill.py が生成）へ委譲するだけで、スキル本体は install しないため zip 再展開の更新に追従する。specdb は --root 未指定時にプロジェクトの .specdb を自動補完し、docsummary は独立スキル docsummary へ委譲される（実行時に兄弟スキル docextract の docextract / docagent パッケージを参照する）。__init__.py を持つ同名の通常 Python パッケージは誤解決しない。venv 準備前のフォールバックとして python <スキルディレクトリ> <サブコマンド> と従来の python <ディレクトリ>/scripts/<ツール>.py も使える。
   category: 配布
   status: review
   source:

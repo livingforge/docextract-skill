@@ -12,10 +12,12 @@ docextract で抽出し docagent で索引化した文書を LLM で要約する
 **要約の観点**と**カテゴリー（既定の統制語彙）**の 2 つで、どちらを変えても
 要約は作り直し対象（stale）になる。鮮度は内容ハッシュ + 要約仕様ハッシュで追跡する。
 
-- 実行体は docextract スキルに同梱（`.claude/skills/docextract/scripts/docsummary/`）。
+- 実行体はこの docsummary スキルに同梱（`.claude/skills/docsummary/scripts/docsummary/`）。
+  依存する docextract / docagent パッケージは同梱せず、同じプロジェクトに展開された
+  **兄弟スキル docextract** を実行時参照する（docextract スキルが必要）。
   venv コマンド **`docsummary`** として任意のディレクトリから実行できる
   （venv 未 activate なら `.venv/Scripts/docsummary`、venv 構築前は
-  `python .claude/skills/docextract summarize ...` で同じ）
+  `python .claude/skills/docsummary run ...` で同じ）
 - 対応プロバイダ: **openai / azure (Azure OpenAI) / gemini / anthropic**。
   追加ライブラリ不要（標準ライブラリのみで REST API を呼ぶ）
 - 秘密情報（API キー）は **`.env`（既定）または環境変数**で渡す。

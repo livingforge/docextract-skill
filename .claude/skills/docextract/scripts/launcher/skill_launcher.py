@@ -133,6 +133,6 @@ def main_docextract() -> int:
 
 
 def main_docsummary() -> int:
-    """venv コマンド `docsummary`。実体は docextract スキルの summarize
-    サブコマンド (docsummary パッケージは docextract スキルに同梱される)。"""
-    return main("docextract", ["summarize", *sys.argv[1:]])
+    """venv コマンド `docsummary`。独立スキル docsummary へ委譲する
+    (実体の docsummary パッケージは docsummary スキルに同梱される)。"""
+    return main("docsummary", sys.argv[1:])

@@ -46,7 +46,7 @@
   purpose: >-
     抽出・索引化済みの文書を LLM（openai / azure / gemini / anthropic）で要約するスキル。要約はパース済み文書情報に付加する固定構造（メタ表＋カテゴリー＋本文）で保存されるため、利用者が定義するのは出力フォーマットではなく「要約の観点」（summary_guide.md）と「カテゴリー」（summary_categories.json の統制語彙。LLM が付与し正規化）である。内容ハッシュと要約仕様ハッシュ（観点＋カテゴリー）で鮮度（未要約／陳腐化／最新）を追跡する。API キーは .env（既定）または環境変数で管理し、値を表示・保存しない。
   runtime: >-
-    Python 3.10+（追加依存なし。標準ライブラリのみで各社 REST API を呼ぶ。実行体は docextract スキルに同梱され、venv コマンド docsummary で起動する）
+    Python 3.10+（追加依存なし。標準ライブラリのみで各社 REST API を呼ぶ）。実行体（docsummary パッケージ）は本スキルの scripts に同梱し、依存する docextract / docagent パッケージは同梱せず同一プロジェクトの兄弟スキル docextract を実行時参照で解決する。共有 venv・依存インストールのマーカーは docextract と共用する。
   status: review
   source:
     doc: src/skills/docsummary/body.md

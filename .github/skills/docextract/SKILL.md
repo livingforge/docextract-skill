@@ -74,8 +74,8 @@ docextract extract --dir <folder> -r -o <output-dir>  # recurse
 
 Work with extracted results through the same launcher:
 `docextract docagent <subcommand>`. Summarize registered documents with an LLM
-via `docsummary <subcommand>` (alias: `docextract summarize`) — see the
-**docsummary** skill for target selection and API-key (.env) setup.
+via the separate **docsummary** skill (`docsummary run …`) — see that skill for
+target selection and API-key (.env) setup.
 
 Python API:
 
