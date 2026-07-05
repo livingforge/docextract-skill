@@ -17,9 +17,14 @@ license: MIT
   （CI で PR をブロックできる）
 - すべてのアイテム・関係が出典（`source` = doc + location + evidence）を持てるので、
   既存資料からの移行でもトレーサビリティが残る
+- `history.py` が Git 履歴から変更履歴を**意味的に**再構成する（どのアイテム・関係が
+  いつ・誰に・どう変わったか。`--id` でアイテム単位の変遷、`--json` で機械可読）。
+  生成設計書の改訂履歴シートはこの実履歴から自動で埋まる
 - `visualize.py` が仕様データ全体を**自己完結の対話型 HTML**（依存・CDN なし）に
-  描画する: 種別で色分けした関係グラフ、種別/関係フィルタ、検索、ノード詳細
-  （属性・出典・関係）、検証 error/warn のオーバーレイ、一覧テーブル表示
+  描画する: 種別で色分けした関係グラフ、種別/関係/状態フィルタ、検索、ノード詳細
+  （属性・出典・関係）、検証 error/warn のオーバーレイ、一覧テーブル表示。
+  レビュー中（status: review）のアイテム・関係は破線で強調され、
+  「レビュー中」ボタンでレビュー対象とその隣接だけの関係グラフに絞り込める
 
 ## セットアップ
 
@@ -51,6 +56,8 @@ python .claude/skills/specdb/scripts/generate.py                  # 全文書を
 python .claude/skills/specdb/scripts/generate.py table-spec       # 指定文書だけ生成
 python .claude/skills/specdb/scripts/diff.py     baseline/R1.0    # ベースライン差分
 python .claude/skills/specdb/scripts/diff.py     --baselines      # ベースライン一覧
+python .claude/skills/specdb/scripts/history.py                   # 変更履歴 (Git から意味的に再構成)
+python .claude/skills/specdb/scripts/history.py  --id scr-0001    # アイテム単位の変遷
 python .claude/skills/specdb/scripts/visualize.py                 # 対話型ビューア out/specdb.html
 ```
 

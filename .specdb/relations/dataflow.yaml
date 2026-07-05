@@ -46,3 +46,9 @@
     doc: .claude/skills/specdb/SKILL.md
     location: { section: "docextract / spec-extractor との関係" }
     evidence: "自動取り込みアダプタは未実装なので、現状は抽出済みファクトから items/*.yaml を起こす（Claude が変換を手伝う）。"
+
+- type: produces
+  from: sk-spec-sync
+  to: ar-specdata
+  note: "実装差分を写像して正本を更新する（新規・変更は status: review で登録）"
+  status: review

@@ -26,3 +26,17 @@
     doc: specdb/README.md
     location: { section: "冒頭" }
     evidence: "「文書を保存する」のではなく「仕様アイテムと関係をデータ（正本）として保存し、設計書はそこから生成されるビューにする」構想の実証。"
+
+- id: sk-spec-sync
+  name: spec-sync
+  purpose: >-
+    実装の変更を .specdb（設計データの正本）へ同期する手順スキル。影響判定 →
+    正本 YAML 更新（status: review で登録）→ 機械検証 error 0 → ビュー再生成 →
+    レビュー待ちの報告までを定型化し、実装と設計データの乖離を防ぐ。
+  runtime: 手順のみ（specdb スキル同梱のツールを利用）
+  status: review
+  rules: [dr-01, dr-06]
+  source:
+    doc: .claude/skills/spec-sync/SKILL.md
+    location: { section: "冒頭" }
+    evidence: "実装だけ進んで正本が古くなるのを防ぐため、機能の追加・変更・廃止のあとにこの手順で .specdb を更新する。"

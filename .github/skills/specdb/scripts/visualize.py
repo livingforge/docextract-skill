@@ -177,6 +177,7 @@ header .stat span { color: var(--muted); font-size: 11px; }
 header .stat.err b { color: var(--err); }
 header .stat.warn b { color: var(--warn); }
 header .stat.zero b { color: var(--good); }
+header .stat.rev b { color: var(--accent); }
 #cols { display: grid; grid-template-columns: 232px 1fr 300px; min-height: 0; }
 @media (max-width: 900px) { #cols { grid-template-columns: 200px 1fr; } #detail { display: none; } }
 .panel { overflow-y: auto; background: var(--surface); }
@@ -199,6 +200,10 @@ header .stat.zero b { color: var(--good); }
 .chk .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
 .chk .n { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 .chk.rel .sw { height: 2px; border-radius: 1px; background: var(--edge-hi); }
+.chk .sw.st { border-radius: 50%; background: var(--muted); }
+.chk .sw.st-review { background: transparent; border: 2px dashed var(--accent); }
+.chk .sw.st-deprecated { background: transparent; border: 1px dashed var(--muted);
+  opacity: .7; }
 #problems .p { display: flex; gap: 6px; padding: 4px 6px; border-radius: 5px;
                cursor: pointer; align-items: baseline; }
 #problems .p:hover { background: var(--bg); }
@@ -218,17 +223,24 @@ header .stat.zero b { color: var(--good); }
 #toolbar button:hover, #toolbar label:hover { color: var(--ink); border-color: var(--muted); }
 #toolbar button:focus-visible { outline: 2px solid var(--accent); }
 #toolbar .on { color: var(--ink); border-color: var(--accent); }
+#toolbar button:disabled { opacity: .45; cursor: default; }
+#toolbar button:disabled:hover { color: var(--ink-2); border-color: var(--hairline); }
 #svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 #svg.panning { cursor: grabbing; }
 .link { stroke: var(--edge); stroke-width: 1.5; fill: none; }
 .link.hi { stroke: var(--edge-hi); stroke-width: 2; }
 .link.dim { opacity: .12; }
+.link.st-review { stroke-dasharray: 6 4; }
+.link.st-deprecated { stroke-dasharray: 2 3; opacity: .4; }
 .node { cursor: pointer; }
 .node circle { stroke: var(--halo); stroke-width: 1.5; }
-.node.deprecated { opacity: .45; }
-.node.deprecated circle { stroke-dasharray: 3 2; }
+.node.st-review circle:not(.ring) { stroke: var(--accent); stroke-width: 2;
+  stroke-dasharray: 4 3; }
+.node.st-deprecated { opacity: .45; }
+.node.st-deprecated circle { stroke-dasharray: 3 2; }
 .node.dim { opacity: .14; }
-.node.sel circle { stroke: var(--accent); stroke-width: 3; }
+.node.sel circle:not(.ring) { stroke: var(--accent); stroke-width: 3;
+  stroke-dasharray: none; }
 .node text {
   font-size: 11px; fill: var(--ink); paint-order: stroke; stroke: var(--halo);
   stroke-width: 3px; stroke-linejoin: round; pointer-events: none;
@@ -263,6 +275,7 @@ header .stat.zero b { color: var(--good); }
 .pill { display: inline-block; border-radius: 10px; padding: 1px 8px; font-size: 11px;
   border: 1px solid var(--hairline); color: var(--ink-2); }
 .pill.approved { color: var(--good); border-color: var(--good); }
+.pill.review { color: var(--accent); border-color: var(--accent); }
 .pill.deprecated { text-decoration: line-through; }
 #detail table.attrs { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; }
 #detail table.attrs td { padding: 3px 6px 3px 0; vertical-align: top;
@@ -296,6 +309,7 @@ header .stat.zero b { color: var(--good); }
         aria-label="ノード検索"></div>
       <div class="sec"><h2>アイテム種別</h2><div id="ftypes"></div></div>
       <div class="sec"><h2>関係種別</h2><div id="frels"></div></div>
+      <div class="sec"><h2>状態</h2><div id="fstatus"></div></div>
       <div class="sec"><h2>検証</h2><div id="problems"></div></div>
     </nav>
     <main id="stage">
@@ -303,6 +317,7 @@ header .stat.zero b { color: var(--good); }
         <button id="btnFit" type="button">全体表示</button>
         <button id="btnRelayout" type="button">再レイアウト</button>
         <button id="btnLabels" type="button">関係ラベル</button>
+        <button id="btnReview" type="button">レビュー中</button>
         <button id="btnTable" type="button">一覧表示</button>
       </div>
       <svg id="svg" role="img" aria-label="仕様アイテムの関係グラフ">
@@ -336,6 +351,7 @@ header .stat.zero b { color: var(--good); }
 const DB = JSON.parse(document.getElementById("specdb-data").textContent);
 const STATUS_LABEL = {draft:"起票", review:"レビュー中", approved:"承認済",
                       deprecated:"廃止"};
+const STATUSES = Object.keys(STATUS_LABEL);
 const dark = () => {
   const t = document.documentElement.getAttribute("data-theme");
   if (t) return t === "dark";
@@ -422,8 +438,19 @@ const el = (tag, attrs) => {
   for (const k in attrs) e.setAttribute(k, attrs[k]);
   return e;
 };
+// レビュー中サブグラフ: レビュー中のアイテム・関係と、その直接の隣接ノード
+const reviewSet = new Set();
+nodes.forEach(n => { if (n.status === "review") reviewSet.add(n.id); });
 links.forEach(l => {
-  l.line = el("line", {class: "link", "marker-end": "url(#arr)"});
+  if (l.status === "review" || l.s.status === "review" || l.t.status === "review") {
+    reviewSet.add(l.s.id); reviewSet.add(l.t.id);
+  }
+});
+const inReviewGraph = l => l.status === "review" ||
+  l.s.status === "review" || l.t.status === "review";
+
+links.forEach(l => {
+  l.line = el("line", {class: "link st-" + l.status, "marker-end": "url(#arr)"});
   l.hit = el("line", {stroke: "transparent", "stroke-width": "10"});
   l.hit.style.pointerEvents = "stroke";
   document.getElementById("glinks").append(l.line, l.hit);
@@ -445,7 +472,7 @@ nodes.forEach(n => {
   // ツールチップと詳細パネルで見せる
   n.text.textContent = n.label.length > 20 ? n.label.slice(0, 19) + "…" : n.label;
   n.g.append(n.circle, n.text);
-  if (n.status === "deprecated") n.g.classList.add("deprecated");
+  n.g.classList.add("st-" + n.status);
   n.g.addEventListener("keydown", ev => {
     if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select({kind:"item", ref:n}); }
   });
@@ -477,10 +504,12 @@ new MutationObserver(paint).observe(document.documentElement,
   {attributes: true, attributeFilter: ["data-theme"]});
 
 // ---- 表示状態 --------------------------------------------------------------
-const hiddenTypes = new Set(), hiddenRels = new Set();
+const hiddenTypes = new Set(), hiddenRels = new Set(), hiddenStatuses = new Set();
 let query = "", selected = null, showEdgeLabels = false, tableMode = false;
-const nodeVisible = n => !hiddenTypes.has(n.type);
-const linkVisible = l => !hiddenRels.has(l.type) && nodeVisible(l.s) && nodeVisible(l.t);
+let reviewMode = false;
+const nodeVisible = n => !hiddenTypes.has(n.type) && !hiddenStatuses.has(n.status);
+const linkVisible = l => !hiddenRels.has(l.type) && !hiddenStatuses.has(l.status) &&
+                         nodeVisible(l.s) && nodeVisible(l.t);
 
 function refresh() {
   const q = query.trim().toLowerCase();
@@ -497,7 +526,8 @@ function refresh() {
   nodes.forEach(n => {
     n.g.style.display = nodeVisible(n) ? "" : "none";
     const dim = (q && !match(n)) ||
-                (neigh.size && !neigh.has(n.id));
+                (neigh.size && !neigh.has(n.id)) ||
+                (reviewMode && !reviewSet.has(n.id));
     n.g.classList.toggle("dim", !!dim);
     n.g.classList.toggle("sel", !!(selected && selected.kind === "item" &&
                                    selected.ref === n));
@@ -511,7 +541,8 @@ function refresh() {
       (selected.kind === "rel" && l === selected.ref));
     l.line.classList.toggle("hi", !!hi);
     l.line.setAttribute("marker-end", hi ? "url(#arrHi)" : "url(#arr)");
-    const dim = (neigh.size || q) && !hi;
+    const dim = ((neigh.size || q) && !hi) ||
+                (reviewMode && !inReviewGraph(l));
     l.line.classList.toggle("dim", !!dim);
     l.text.style.display = vis && (showEdgeLabels || hi) && !dim ? "" : "none";
   });
@@ -636,6 +667,23 @@ function buildFilters() {
     });
     fr.appendChild(row);
   });
+  const fs = document.getElementById("fstatus");
+  STATUSES.forEach(st => {
+    const ni = nodes.filter(n => n.status === st).length;
+    const nl = links.filter(l => l.status === st).length;
+    if (!ni && !nl) return;
+    const row = document.createElement("label");
+    row.className = "chk";
+    row.title = `アイテム ${ni} 件 / 関係 ${nl} 件`;
+    row.innerHTML = `<input type="checkbox" checked>` +
+      `<span class="sw st st-${st}"></span>` +
+      `<span>${esc(STATUS_LABEL[st])}</span><span class="n">${ni + nl}</span>`;
+    row.querySelector("input").addEventListener("change", ev => {
+      ev.target.checked ? hiddenStatuses.delete(st) : hiddenStatuses.add(st);
+      refresh();
+    });
+    fs.appendChild(row);
+  });
   const pr = document.getElementById("problems");
   if (!DB.problems.length) {
     pr.innerHTML = `<div class="empty">✓ error 0 件 / warn 0 件</div>`;
@@ -661,9 +709,12 @@ function buildHeader() {
     `${DB.root} @ ${DB.rev} · ${DB.generatedAt}`;
   const errs = DB.problems.filter(p => p.level === "error").length;
   const warns = DB.problems.length - errs;
+  const nrev = nodes.filter(n => n.status === "review").length +
+               links.filter(l => l.status === "review").length;
   document.getElementById("stats").innerHTML =
     `<span class="stat"><b>${nodes.length}</b><span>アイテム</span></span>` +
     `<span class="stat"><b>${links.length}</b><span>関係</span></span>` +
+    (nrev ? `<span class="stat rev"><b>${nrev}</b><span>レビュー中</span></span>` : "") +
     `<span class="stat ${errs ? "err" : "zero"}"><b>${errs}</b><span>error</span></span>` +
     `<span class="stat ${warns ? "warn" : "zero"}"><b>${warns}</b><span>warn</span></span>`;
 }
@@ -771,6 +822,23 @@ document.getElementById("btnLabels").addEventListener("click", ev => {
   refresh();
 });
 document.getElementById("btnTable").addEventListener("click", () => toggleTable(!tableMode));
+{
+  const btn = document.getElementById("btnReview");
+  const nrev = nodes.filter(n => n.status === "review").length +
+               links.filter(l => l.status === "review").length;
+  btn.textContent = `レビュー中 (${nrev})`;
+  if (nrev) {
+    btn.title = "レビュー中のアイテム・関係と、その直接の隣接だけを強調表示";
+    btn.addEventListener("click", () => {
+      reviewMode = !reviewMode;
+      btn.classList.toggle("on", reviewMode);
+      refresh();
+    });
+  } else {
+    btn.disabled = true;
+    btn.title = "レビュー中 (status: review) のアイテム・関係はありません";
+  }
+}
 
 // ---- 起動 --------------------------------------------------------------------
 buildHeader(); buildFilters(); paint(); refresh();

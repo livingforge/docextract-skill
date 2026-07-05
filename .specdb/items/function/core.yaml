@@ -156,8 +156,10 @@
   category: 仕様管理
   description: >-
     仕様データ全体を自己完結の対話型 HTML（依存・CDN なし）に描画する。
-    種別で色分けした関係グラフ・フィルタ・検索・ノード詳細・検証結果の
-    オーバーレイ・一覧テーブル表示を持つ。
+    種別で色分けした関係グラフ・種別/関係/状態フィルタ・検索・ノード詳細・
+    検証結果のオーバーレイ・一覧テーブル表示を持つ。レビュー中（status: review）の
+    アイテム・関係は破線で強調され、レビュー対象とその隣接だけの関係グラフに
+    絞り込める。
   status: review
   source:
     doc: .claude/skills/specdb/SKILL.md
@@ -177,6 +179,35 @@
     doc: agent-src/spec-designer/body.md
     location: { section: "冒頭" }
     evidence: "設計書を手書きしません —— 正本はデータ、設計書はそこから生成されるビューです。"
+
+- id: fn-history
+  func_id: F-16
+  name: 変更履歴の生成
+  category: 仕様管理
+  description: >-
+    仕様データを触った各コミットを Git 履歴から拾い、直前状態との差分を
+    「アイテム・関係の追加/削除/変更」のレベルで再構成して時系列の変更履歴を
+    作る。アイテム単位の変遷（--id）と機械可読出力（--json）を持ち、
+    生成設計書の改訂履歴シートはこの実履歴から自動で埋まる。
+  status: review
+  source:
+    doc: specdb/history.py
+    location: { section: "冒頭 docstring" }
+    evidence: "仕様データ (metamodel.yaml / items/ / relations/) を触った各コミットについて、直前の状態との差分を「アイテム・関係の追加/削除/変更」のレベルで復元する。"
+
+- id: fn-spec-sync
+  func_id: F-15
+  name: 実装と設計データの同期
+  category: 仕様管理
+  description: >-
+    機能の追加・変更・廃止のあとに、実装差分を .specdb の語彙（アイテム・関係）へ
+    写像して正本を更新する。新規・変更は status: review で登録し、機械検証
+    error 0 とビュー再生成までを完了の定義（CLAUDE.md）とする。
+  status: review
+  source:
+    doc: CLAUDE.md
+    location: { section: "完了の定義（Definition of Done）" }
+    evidence: ".specdb（プロジェクト設計データの正本）を更新済み — 手順は /spec-sync スキルに従う"
 
 - id: fn-build
   func_id: F-13

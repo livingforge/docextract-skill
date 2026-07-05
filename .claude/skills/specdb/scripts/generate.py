@@ -93,6 +93,14 @@ def main() -> int:
     env = make_env(store, templates_dir)
     generated_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     rev = git_rev(root)
+    # 変更履歴 (Git から意味的に再構成)。改訂履歴シート等が実履歴から埋まる。
+    # Git 管理外・履歴なしなら空リストで、テンプレート側がフォールバックする。
+    try:
+        from history import collect_history
+        data_history = collect_history(root)
+    except Exception as exc:  # 履歴が取れなくても文書生成は止めない
+        print(f"変更履歴を取得できませんでした ({exc})", file=sys.stderr)
+        data_history = []
     out_dir.mkdir(exist_ok=True)
 
     for deffile in defs:
@@ -100,7 +108,7 @@ def main() -> int:
             doc = yaml.safe_load(f)
         text = env.get_template(doc["template"]).render(
             doc=doc, store=store, mm=store.mm,
-            generated_at=generated_at, data_rev=rev)
+            generated_at=generated_at, data_rev=rev, data_history=data_history)
         dest = out_dir / doc["output"]
         dest.write_text(text, encoding="utf-8")
         print(f"生成しました: {dest}")

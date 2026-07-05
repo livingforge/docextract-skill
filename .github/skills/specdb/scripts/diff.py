@@ -159,6 +159,10 @@ def diff_report(a: Store, b: Store, rev_a: str, rev_b: str) -> str:
 
 
 def main() -> int:
+    # Windows の cp932 コンソールでは em-dash 等が書けないため UTF-8 で出す
+    # (レポートはリダイレクトしてファイル化する使い方が主)。
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     data_root, args = parse_root(sys.argv[1:])
     if args and args[0] == "--baselines":
         tags = _git("tag", "-l", "baseline/*", "--sort=-creatordate",

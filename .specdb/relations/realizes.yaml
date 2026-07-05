@@ -28,3 +28,7 @@
 - { type: realizes, from: ag-designer,    to: fn-author,    status: review }
 
 - { type: realizes, from: mod-build,      to: fn-build,     status: approved }
+
+- { type: realizes, from: sk-spec-sync,   to: fn-spec-sync, status: review }
+- { type: realizes, from: sk-specdb,      to: fn-history,   status: review }
+- { type: realizes, from: mod-specdb,     to: fn-history,   status: review }

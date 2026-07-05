@@ -17,8 +17,21 @@
             '本書は仕様データから自動生成されたビューです。直接編集しないでください。') }}
 
 {% call ex.sheet('改訂履歴', doc.title, doc.doc_no, doc.version) %}
+{# 改訂履歴はデータの実履歴 (generate.py が Git から再構成した data_history) から
+   自動で埋まる。Git 管理外などで履歴が無い場合のみ従来の 1 行にフォールバック #}
+{% if data_history %}
+{% set hist_rows = [] %}
+{% for h in data_history %}
+{% set _ = hist_rows.append({'version': loop.index, 'date': h.date,
+    'note': (h.subject ~ '：' if h.subject and not h.initial else '') ~ h.summary
+            ~ '（' ~ (h.short if h.short else '未コミット') ~ '）',
+    'author': h.author}) %}
+{% endfor %}
+{{ ex.rev_history(hist_rows) }}
+{% else %}
 {{ ex.rev_history([{'version': doc.version, 'date': generated_at[:10],
                     'note': '初版（データ版 ' ~ data_rev ~ ' から自動生成）', 'author': 'specdb'}]) }}
+{% endif %}
 {% endcall %}
 
 {# ---- 目次（章構成はデータから組み立てる） ------------------------------ #}
