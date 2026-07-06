@@ -101,7 +101,7 @@ def main() -> int:
 
     dest = out_path or (root / "out" / OUTPUT_NAME)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(render(build_payload(store, root)), encoding="utf-8")
+    dest.write_text(render(build_payload(store, root)), encoding="utf-8", newline="\n")
     errs = sum(1 for p in store.problems if p.level == "error")
     warns = len(store.problems) - errs
     print(f"生成しました: {dest}")

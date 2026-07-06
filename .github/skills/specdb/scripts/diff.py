@@ -51,7 +51,7 @@ def store_at(rev: str | None, data_root: Path) -> Store:
             sys.exit(f"git show 失敗 ({name}): {show.stderr.strip()}")
         dest = tmp / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(show.stdout, encoding="utf-8")
+        dest.write_text(show.stdout, encoding="utf-8", newline="\n")
     if not (tmp / "metamodel.yaml").is_file():
         sys.exit(f"リビジョン '{rev}' に仕様データが無い"
                  f"（{prefix}/ が Git 管理されているか確認する。.gitignore の除外に注意）。")

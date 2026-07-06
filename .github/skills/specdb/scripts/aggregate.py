@@ -188,7 +188,7 @@ def main() -> int:
         return 1
     report = build_report(projects, only)
     if out_path:
-        out_path.write_text(report, encoding="utf-8")
+        out_path.write_text(report, encoding="utf-8", newline="\n")
         print(f"生成しました: {out_path}（プロジェクト {len(projects)} 件）")
     else:
         sys.stdout.write(report)
