@@ -583,7 +583,7 @@ def write_lock(root: Path, packs: list[Pack]) -> Path:
     lock.write_text(
         "# 機械生成。直接編集しない（specdb pack lock で更新する）。\n"
         + yaml.safe_dump(chain_lock(root, packs), allow_unicode=True, sort_keys=False),
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
     return lock
 
 
