@@ -27,7 +27,14 @@ dependencies.md / GOVERNANCE.md / threat-model.md）を参照。
 - **コストと実行時間は保存されていない**ため算出する:
   - コスト = トークン × モデル別単価（キャッシュは読込/書込で別単価）。単価表は後述の
     `pricing.json`。
-  - 実行時間 = セッション内 timestamp の差分（ツール別は `tool_use`→`tool_result` 間）。
+  - 実行時間は 3 系統で示す:
+    - **経過**（`duration_seconds`）= セッション内 timestamp の差分（壁時計。思考・
+      ストリーミング・人間の待ち時間をすべて含む）。
+    - **AI稼働**（`ai_active_seconds`）= 人間プロンプトの送信から、そのターンの最後の
+      応答までをターンごとに合計した「AI が動いていた時間」。応答完了から次プロンプト
+      までの空白（人間が読んで入力する時間）は含めない。ツール実行時間 ≤ AI稼働 ≤ 経過。
+    - **ツール実行時間**（`active_seconds`）= ツール実行（`tool_use`→`tool_result`）の合計。
+      サブエージェント内部ツールは親の Agent 呼び出しに内包されるため二重計上しない。
 - **サブエージェント（Task/Agent）**の内部は、新しい Claude Code（VS Code 版を含む）では
   親の `<session>.jsonl` に混ざらず `<プロジェクト>/<session>/subagents/agent-*.jsonl`
   に分離記録される（各行 `isSidechain: true`・`usage` 付き）。本スキルはこのサブ

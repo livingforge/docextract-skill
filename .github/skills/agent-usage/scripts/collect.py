@@ -152,8 +152,10 @@ def _iter_file(path: Path, project: str, session_override: str | None,
                 ev["parent_tool_use_id"] = parent_tool_use_id
             yield ev
         elif ev_type == "user":
-            # tool_result を含む user 行から、対応する tool_use の所要時間を計上
             content = msg.get("content")
+            has_tool_result = isinstance(content, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+            # tool_result を含む user 行から、対応する tool_use の所要時間を計上
             if isinstance(content, list):
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
@@ -172,6 +174,17 @@ def _iter_file(path: Path, project: str, session_override: str | None,
                                     "is_error": bool(block.get("is_error")),
                                     "is_sidechain": is_sub,
                                 }
+            # tool_result ではない user 行＝人間のプロンプト送信。AI 稼働時間（ターンの
+            # 起点）を測るためにイベント化する。isMeta（コマンド等の自動挿入行）は除く。
+            if ts is not None and not has_tool_result and not obj.get("isMeta"):
+                yield {
+                    "kind": "user_prompt",
+                    "project": project,
+                    "session": session,
+                    "cwd": cwd,
+                    "ts": ts,
+                    "is_sidechain": is_sub,
+                }
         # それ以外(queue-operation, attachment, ai-title 等)はコスト無関係
 
 

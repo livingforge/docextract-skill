@@ -256,8 +256,8 @@ def _tiles(summary: dict, t: dict) -> str:
         ("会話 / セッション", _fmt_int(summary.get("conversation_count", t["sessions"])),
          f'{_fmt_int(t["messages"])} メッセージ'),
         ("ツール呼び出し", _fmt_int(t["tool_calls"]), ""),
-        ("実行時間", _fmt_dur(t["duration_seconds"]),
-         f'実働 {_fmt_dur(t.get("active_seconds", 0))}'),
+        ("AI稼働時間", _fmt_dur(t.get("ai_active_seconds", 0)),
+         f'経過 {_fmt_dur(t["duration_seconds"])}・ツール実行時間 {_fmt_dur(t.get("active_seconds", 0))}'),
     ]
     return "".join(
         f'<div class="tile"><div class="t-label">{_esc(lbl)}</div>'
@@ -419,6 +419,7 @@ def _conv_modal(c: dict) -> str:
         f'<div><span>メッセージ</span><b>{_fmt_int(c["messages"])}</b></div>'
         f'<div><span>ツール</span><b>{_fmt_int(c["tool_calls"])}</b></div>'
         f'<div><span>時間</span><b>{_fmt_dur(c["duration_seconds"])}</b></div>'
+        f'<div><span>AI稼働</span><b>{_fmt_dur(c.get("ai_active_seconds", 0))}</b></div>'
         '</div>'
     )
 

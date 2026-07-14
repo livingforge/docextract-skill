@@ -105,3 +105,41 @@ def test_no_meta_falls_back_to_question_mark(tmp_path):
     bt, _ = _by_type(tmp_path)
     assert "?" in bt
     assert bt["?"]["calls"] == 1
+
+
+def _make_turns_session(root: Path, turns: list[tuple[str, str, list[str]]]) -> None:
+    """人間プロンプト → assistant 応答群 のターン列から親セッション JSONL を合成する。
+    turns の各要素は (prompt_ts, ...) ではなく (prompt_ts, human?, [assistant_ts...])。"""
+    rows = []
+    for prompt_ts, _kind, assistant_ts in turns:
+        rows.append({"type": "user", "timestamp": prompt_ts, "sessionId": "s1",
+                     "cwd": "/c/proj", "message": {"content": "やって"}})
+        for a in assistant_ts:
+            rows.append({"type": "assistant", "timestamp": a, "sessionId": "s1",
+                         "cwd": "/c/proj", "message": {
+                             "model": "claude-opus-4-8",
+                             "usage": {"input_tokens": 10, "output_tokens": 5},
+                             "content": []}})
+    _write_jsonl(root / "c--proj" / "s1.jsonl", rows)
+
+
+def test_ai_active_excludes_human_idle(tmp_path):
+    """AI稼働は「プロンプト→そのターン最後の応答」の合計で、応答→次プロンプトの
+    人間アイドルは含めない。経過(duration) とも実働(active) とも異なる。"""
+    # ターン1: 07:00:00 送信 → 07:00:30 応答（30秒）。その後 5分アイドル。
+    # ターン2: 07:05:30 送信 → 07:06:10 応答（40秒）。
+    _make_turns_session(tmp_path, [
+        ("2026-07-11T07:00:00.000Z", "h", ["2026-07-11T07:00:10.000Z",
+                                           "2026-07-11T07:00:30.000Z"]),
+        ("2026-07-11T07:05:30.000Z", "h", ["2026-07-11T07:06:10.000Z"]),
+    ])
+    s = report.build_summary(_args(tmp_path))
+    t = s["totals"]
+    # AI稼働 = 30 + 40 = 70 秒（アイドル 5 分は除外）
+    assert t["ai_active_seconds"] == 70.0
+    # 経過 = 最初 07:00:00 〜 最後 07:06:10 = 370 秒（アイドル込み）
+    assert t["duration_seconds"] == 370.0
+    # 実働（ツール時間）はツールが無いので 0 で、AI稼働とは別物
+    assert t["active_seconds"] == 0.0
+    # 会話単位にも出る
+    assert s["conversations"][0]["ai_active_seconds"] == 70.0

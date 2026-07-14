@@ -146,6 +146,10 @@ def build_summary(args: argparse.Namespace) -> dict:
             if ts is not None:
                 s["first"] = min(s["first"], ts) if s["first"] else ts
                 s["last"] = max(s["last"], ts) if s["last"] else ts
+                # サブエージェント内部（sidechain）は親の Agent 呼び出しの壁時計に内包
+                # されるため、ターン境界の作業マークには親会話ぶんだけを使う。
+                if not ev["is_sidechain"]:
+                    s["_ai_marks"].append((ts, "work"))
 
             if ev["is_sidechain"]:
                 # サブエージェント内部：メインのタイムラインには混ぜず、親会話の当該
@@ -209,6 +213,17 @@ def build_summary(args: argparse.Namespace) -> dict:
                     entry["seconds"] = round(ev["seconds"], 1)
                     entry["is_error"] = ev["is_error"]
 
+        elif ev["kind"] == "user_prompt":
+            # 人間プロンプトの送信＝ターンの起点。AI 稼働時間の区間計算に使う。
+            # sidechain（サブエージェント内部の起動プロンプト）は親の壁時計に内包
+            # されるため数えない。
+            if ev.get("is_sidechain") or ts is None:
+                continue
+            s = sessions.setdefault(ev["session"], _new_session(ev, project))
+            s["_ai_marks"].append((ts, "prompt"))
+            s["first"] = min(s["first"], ts) if s["first"] else ts
+            s["last"] = max(s["last"], ts) if s["last"] else ts
+
     return _finalize(
         totals, by_model, by_project, by_day, by_agent, by_tool,
         sessions, meta, unknown_models, cache_savings, active_total,
@@ -222,10 +237,34 @@ def _round_bucket(b: dict) -> dict:
     return b
 
 
+def _ai_active_from_marks(marks: list) -> float:
+    """AI 稼働時間（秒）を算出する。
+
+    人間がプロンプトを送ってから、そのターンの最後の作業（assistant 応答）までを
+    「AI が動いていた区間」とみなし、ターンごとの区間長を合計する。応答完了から
+    次のプロンプトまでの空白（人間が読んで次を打つ時間）は含めない。マークは
+    (ts, "prompt"|"work") で、"work" は非 sidechain の assistant 行の時刻。"""
+    total = 0.0
+    seg_start = None   # 現ターンの起点（人間プロンプト時刻）
+    last_work = None   # 現ターンで最後に観測した作業時刻
+    for ts, kind in sorted(marks, key=lambda m: m[0]):
+        if kind == "prompt":
+            if seg_start is not None and last_work is not None and last_work > seg_start:
+                total += (last_work - seg_start).total_seconds()
+            seg_start = ts
+            last_work = None
+        elif seg_start is not None:  # work（起点となるプロンプトがある場合のみ）
+            last_work = ts
+    if seg_start is not None and last_work is not None and last_work > seg_start:
+        total += (last_work - seg_start).total_seconds()
+    return total
+
+
 def _finalize(totals, by_model, by_project, by_day, by_agent, by_tool,
               sessions, meta, unknown_models, cache_savings, active_total, pricing, claude_dir,
               args, since, until, subtype_usage) -> dict:
     duration = 0.0
+    ai_active_total = 0.0
     first_all = last_all = None
     conversations = []
     # 呼出回数・所要時間は親のタイムライン（Agent 項目）から、内部トークン・コストは
@@ -248,6 +287,8 @@ def _finalize(totals, by_model, by_project, by_day, by_agent, by_tool,
             duration += span
             first_all = s["first"] if first_all is None else min(first_all, s["first"])
             last_all = s["last"] if last_all is None else max(last_all, s["last"])
+        s["ai_active_seconds"] = _ai_active_from_marks(s.get("_ai_marks", []))
+        ai_active_total += s["ai_active_seconds"]
         m = meta.get(sid, {})
         models_detail = [
             {"model": name, **_round_bucket(b)}
@@ -270,6 +311,7 @@ def _finalize(totals, by_model, by_project, by_day, by_agent, by_tool,
             "cost_known": s["cost_known"],
             "duration_seconds": round(s.get("duration_seconds", 0.0), 1),
             "active_seconds": round(s["active_seconds"], 1),
+            "ai_active_seconds": round(s.get("ai_active_seconds", 0.0), 1),
             "started": s["first"].isoformat() if s["first"] else None,
             "timeline": s["timeline"],
             "timeline_truncated": s["timeline_truncated"],
@@ -315,6 +357,7 @@ def _finalize(totals, by_model, by_project, by_day, by_agent, by_tool,
             "sessions": len(sessions),
             "duration_seconds": round(duration, 1),
             "active_seconds": round(active_total, 1),
+            "ai_active_seconds": round(ai_active_total, 1),
             "cache_savings_usd": round(cache_savings, 4),
             "unknown_models": sorted(unknown_models),
         },
@@ -370,10 +413,13 @@ def _new_session(ev: dict, project: str) -> dict:
         "first": None,
         "last": None,
         "active_seconds": 0.0,
+        "ai_active_seconds": 0.0,
         "by_model": defaultdict(_empty_bucket),
         "timeline": [],
         "timeline_truncated": False,
         "_tl_index": {},
+        # AI 稼働時間の計算用: (ts, "prompt"|"work") の並び（非 sidechain のみ）
+        "_ai_marks": [],
     })
     return b
 
@@ -429,7 +475,8 @@ def _write_ledger(path: Path, conversations: list[dict]) -> None:
         ("title", "タイトル"), ("project", "プロジェクト"), ("models", "モデル"),
         ("messages", "メッセージ"), ("tool_calls", "ツール呼出"),
         ("cost_usd", "コストUSD"), ("duration_seconds", "経過秒"),
-        ("active_seconds", "実働秒"), ("started", "開始"),
+        ("ai_active_seconds", "AI稼働秒"), ("active_seconds", "ツール実行秒"),
+        ("started", "開始"),
         ("session", "セッションID"), ("last_prompt", "最終指示"),
     ]
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
