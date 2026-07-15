@@ -10,7 +10,7 @@ description: Analyze coding-agent telemetry (Claude Code and GitHub Copilot sess
 `summary.json` と自己完結の `report.html` に出力するスキル。メインエージェントに
 加えサブエージェント（sidechain / child session）も対象にする。`--agent` で対象を選び、
 出力（summary.json / report.html）の形は両者で共通。コストの単位だけが異なる（Claude=
-USD、Copilot=**AIU 実測**）。
+USD、Copilot=**GitHub AI Credits 実測**（1 credit = $0.01））。
 
 Python 3.10+ の標準ライブラリのみで動き外部依存はない。ライセンス（MIT）・変更履歴・
 依存・脅威モデルは
@@ -77,7 +77,7 @@ VS Code の **Agent Debug Log を有効化**しておくと、Copilot Chat は
 `summary.json` / `report.html` を出力する。
 
 ```bash
-# debug-logs を持つ全ワークスペースを集計（AIU 表示）
+# debug-logs を持つ全ワークスペースを集計（credit 表示）
 python .github/skills/agent-usage/scripts report --agent copilot --out out-copilot/
 
 # 特定ワークスペースだけ（フォルダパス指定。id 直指定は --workspace-id）
@@ -87,10 +87,11 @@ python .github/skills/agent-usage/scripts report --agent copilot --workspace C:/
 - Copilot 用オプション: `--storage-root`（workspaceStorage ルート上書き）、
   `--workspace`（対象フォルダ）、`--workspace-id`（id 直指定）。未指定なら debug-logs を
   持つ全ワークスペースを対象にし、`by_project` は VS Code のワークスペースフォルダ名で分ける。
-- **コストは AIU（AI Units）で表示し、USD 換算はしない**。各 `llm_request` の
-  `attrs.copilotUsageNanoAiu`（1 AIU = 1e9 nano）が **Copilot の実測消費**で、これを正本の
-  コスト値にする。`models.json` の単価から算出した「推定 AIU」は totals にクロスチェック用
-  として併記する（`--pricing` は Copilot では使わない）。
+- **コストは GitHub AI Credits（1 credit = $0.01）で表示する**。各 `llm_request` の
+  `attrs.copilotUsageNanoAiu`（内部は米ドル基準の AI Units。1 AIU ≒ $1・1e9 nano）が
+  **Copilot の実測消費**で、これを credit へ換算（÷1e7）して正本のコスト値にする。例:
+  Opus 4.8 の output $25/1M → 2,500 credit/1M。`models.json` の単価から算出した「推定
+  credit」は totals にクロスチェック用として併記する（`--pricing` は Copilot では使わない）。
 - `child_session_ref` が指すタイトル生成・サブエージェントの子ログも読み、本体総計へ
   畳み込みつつ `subagents` に内訳を出す（Claude の sidechain 扱いと同じ）。
 

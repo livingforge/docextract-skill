@@ -2,8 +2,8 @@
 """agent-usage の GitHub Copilot 版（--agent copilot）集計とレンダリングの検証。
 
 VS Code workspaceStorage 配下の Agent Debug Log（debug-logs/<sid>/main.jsonl）を
-合成し、copilot_collect.build_summary が AIU ベースの agent-usage スキーマを返すこと、
-render.render_html が AIU 表示になることを end-to-end で確認する。
+合成し、copilot_collect.build_summary が credit ベースの agent-usage スキーマを返すこと、
+render.render_html が credit 表示になることを end-to-end で確認する。
 """
 from __future__ import annotations
 
@@ -96,13 +96,14 @@ def test_copilot_summary_aiu(tmp_path):
     s = copilot_collect.build_summary(_args(root))
 
     assert s["agent"] == "copilot"
-    assert s["cost_unit"] == "AIU"
-    # 実測 AIU: session1 = opus(0.25)+child opus(0.02)=0.27, session2 = 0.25 → 0.52
-    assert s["totals"]["cost_usd"] == 0.52
+    assert s["cost_unit"] == "credit"
+    # 実測消費を credit（=内部 AIU×100, 1 credit=$0.01）で表示:
+    # session1 = opus(0.25→25)+child opus(0.02→2)=27, session2 = 0.25→25 → 52
+    assert s["totals"]["cost_usd"] == 52.0
     assert s["totals"]["sessions"] == 2
     # main/subagent 分割（child のみ subagent）
-    assert s["by_agent"]["subagent"]["cost_usd"] == 0.02
-    assert round(s["by_agent"]["main"]["cost_usd"], 2) == 0.50
+    assert s["by_agent"]["subagent"]["cost_usd"] == 2.0
+    assert round(s["by_agent"]["main"]["cost_usd"], 2) == 50.0
     # by_tool は main + 子ツールを合算（grep_search は子由来）
     tools = {t["tool"]: t for t in s["by_tool"]}
     assert tools["grep_search"]["calls"] == 1
@@ -117,13 +118,13 @@ def test_copilot_summary_aiu(tmp_path):
     assert "テスト仕様書の作成" in titles
 
 
-def test_copilot_render_uses_aiu(tmp_path):
+def test_copilot_render_uses_credit(tmp_path):
     root = _make_storage(tmp_path)
     s = copilot_collect.build_summary(_args(root))
     html = render.render_html(s)
     assert "GitHub Copilot" in html
-    assert "AIU" in html
-    assert "総消費 AIU（実測）" in html
+    assert "credit" in html
+    assert "総消費 credit（実測）" in html
     # USD 記号がコスト表示に紛れ込まない（JS 内の非活性 USD 分岐は本文外）
     body = html.split("<script")[0]
     assert "$" not in body

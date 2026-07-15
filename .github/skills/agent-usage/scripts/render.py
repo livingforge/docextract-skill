@@ -33,21 +33,21 @@ def _fmt_usd_compact(n) -> str:
     return f"${n:.1f}"
 
 
-# コストの表示単位。Claude Code は USD、GitHub Copilot は AIU（実測 AI Units）。
+# コストの表示単位。Claude Code は USD、GitHub Copilot は GitHub AI Credits（1 credit=$0.01）。
 # render_html の冒頭で summary["cost_unit"] を反映する。既定 USD なら従来と完全一致。
 _UNIT = "USD"
 
 
 def _fmt_cost(n) -> str:
-    """コスト値を表示単位で整形。USD は $1,234.56、AIU は 1,234.56 AIU。"""
-    if _UNIT == "AIU":
-        return f"{float(n):,.2f} AIU"
+    """コスト値を表示単位で整形。USD は $1,234.56、credit は 1,234.56 credit。"""
+    if _UNIT == "credit":
+        return f"{float(n):,.2f} credit"
     return _fmt_usd(n)
 
 
 def _fmt_cost_compact(n) -> str:
     """チャート軸ラベル用の短い表記。"""
-    if _UNIT != "AIU":
+    if _UNIT != "credit":
         return _fmt_usd_compact(n)
     n = float(n)
     if n <= 0:
@@ -97,8 +97,8 @@ def render_html(summary: dict, top: int = 100) -> str:
     notes = []
     unknown = t.get("unknown_models") or []
     if unknown:
-        # AIU 版では実測値を採用しているため「推定 AIU にのみ影響」と補足する。
-        suffix = "（推定 AIU にのみ影響）" if _UNIT == "AIU" else ""
+        # credit 版では実測値を採用しているため「推定 credit にのみ影響」と補足する。
+        suffix = "（推定 credit にのみ影響）" if _UNIT == "credit" else ""
         notes.append(f'単価未登録のモデル: {_esc(", ".join(unknown))}{suffix}')
     if _UNIT == "USD" and not summary.get("pricing_verified"):
         notes.append("単価表は未検証です（pricing.json を最新の公開価格でご確認ください）")
@@ -153,15 +153,15 @@ def render_html(summary: dict, top: int = 100) -> str:
     conv_note = f"全 {total_conv} 会話（コスト降順）・詳細アイコンで内訳を表示"
 
     subtitle = f'{_esc((rng.get("first") or "?")[:10])} 〜 {_esc((rng.get("last") or "?")[:10])}'
-    if _UNIT == "AIU":
+    if _UNIT == "credit":
         ver = " / ".join(summary.get("copilot_versions") or [])
         meta_line = (
-            f'source: {_esc(summary.get("source_dir"))} ・ 単位 AIU（実測 copilotUsageNanoAiu）'
+            f'source: {_esc(summary.get("source_dir"))} ・ 単位 credit（GitHub AI Credits・1 credit=0.01 USD）'
             + (f' ・ Copilot {_esc(ver)}' if ver else "")
         )
         footer_note = (
-            "コスト = Copilot が記録した実測 AIU（AI Units）。USD 換算はしていません。"
-            "「推定 AIU」は models.json の単価から算出した参考値です。時間はログの"
+            "コスト = Copilot が記録した実測消費を GitHub AI Credits（1 credit=0.01 USD）で表示。"
+            "「推定 credit」は models.json の単価から算出した参考値です。時間はログの"
             "タイムスタンプ差から導出した推定値です。"
         )
     else:
@@ -228,13 +228,13 @@ def render_html(summary: dict, top: int = 100) -> str:
 # ヒーロー / タイル
 # ---------------------------------------------------------------------------
 def _hero(t: dict) -> str:
-    if _UNIT == "AIU":
+    if _UNIT == "credit":
         est = float(t.get("cost_estimated_aiu") or 0)
         note = (f'単価から推定 <b>{_fmt_cost(est)}</b>（クロスチェック）'
-                if est else 'Copilot が記録した実測 AI Units')
+                if est else 'Copilot が記録した実測 AI Credits')
         return (
             '<div class="hero">'
-            '<div class="hero-label">総消費 AIU（実測）</div>'
+            '<div class="hero-label">総消費 credit（実測）</div>'
             f'<div class="hero-value">{_fmt_cost(t["cost_usd"])}</div>'
             f'<div class="hero-note">{note}</div>'
             '</div>'
@@ -628,11 +628,11 @@ _TEMPLATE = """<div class="wrap">
     return '<div class="daychart">' + grid + bars + '</div>';
   }}
 
-  const isAiu = (summary.cost_unit === 'AIU');
+  const isAiu = (summary.cost_unit === 'credit');
 
   function formatUsd(n) {{
     const s = parseFloat(n).toLocaleString('en-US', {{minimumFractionDigits: 2, maximumFractionDigits: 2}});
-    return isAiu ? (s + ' AIU') : ('$' + s);
+    return isAiu ? (s + ' credit') : ('$' + s);
   }}
 
   function formatUsdCompact(n) {{
